@@ -92,13 +92,28 @@ def _d912(path):
     return http_get(f"{D912}{path}", timeout=25)
 
 
+def _ajustar_splits(serie):
+    """Corrige splits y cambios de ratio: si entre dos cierres seguidos el precio se divide o multiplica
+    por más de 2 (algo que no pasa con un movimiento real de un día), reescala la historia anterior."""
+    fechas = sorted(serie)
+    vals = [serie[f] for f in fechas]
+    for i in range(len(vals) - 1, 0, -1):
+        a, b = vals[i - 1], vals[i]
+        if a and b and (b / a < 0.5 or b / a > 2):
+            r = b / a
+            for j in range(i):
+                vals[j] = vals[j] * r if vals[j] else vals[j]
+    return dict(zip(fechas, vals))
+
+
 def _ar_hist():
-    return read_json(HIST / "ar_closes.json", {}) or {}
+    hist = read_json(HIST / "ar_closes.json", {}) or {}
+    return {t: _ajustar_splits(s) for t, s in hist.items()}
 
 
 def _chg(hist, ticker, last):
     hoy = today_ar().isoformat()
-    serie = {**{d: v for d, v in hist.get(ticker, {}).items() if d < hoy}, hoy: last}
+    serie = _ajustar_splits({**{d: v for d, v in hist.get(ticker, {}).items() if d < hoy}, hoy: last})
     ch = changes_from_series(sorted(serie.items())) if last else None
     return {k: ch[k] for k in ("w", "m", "y")} if ch else {}
 

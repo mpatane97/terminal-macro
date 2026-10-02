@@ -316,7 +316,7 @@ def ar_backfill():
     acciones = list(dict.fromkeys(a["acciones"] + a.get("panel_lider", [])))
     pedidos = [("bonds", usd(t)) for t in a["soberanos_usd"] + a["bopreal"]] + \
               [("stocks", t) for t in acciones] + [("cedears", t) for t in a["cedears"]]
-    hechos = 0
+    hechos, errores = 0, {}
     cutoff = (today_ar() - timedelta(days=400)).isoformat()
     for kind, t in pedidos:
         if len(hist.get(t, {})) >= 200:
@@ -330,8 +330,9 @@ def ar_backfill():
             hechos += 1
         except Exception as e:  # noqa: BLE001
             log.warning("historia %s: %s", t, e)
+            errores[t] = str(e)[:120]
     write_json(HIST / "ar_closes.json", hist)
-    return {"completados": hechos}, "data912.com (histórico)"
+    return {"completados": hechos, "errores": errores}, "data912.com (histórico)"
 
 
 def emae():
