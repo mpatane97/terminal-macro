@@ -127,3 +127,11 @@ nav.tabs button { padding: 5px 9px; }
 .chip.rojo { color: var(--down); background: color-mix(in srgb, var(--down) 16%, transparent); }
 .lectura { margin: 0; padding: 8px 14px 4px 30px; display: grid; gap: 6px; font-size: 14px; line-height: 1.45; max-width: 110ch; }
 .lectura li::marker { color: var(--accent); }
+/* Qué se movió hoy */
+.movers .mv-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; padding-bottom: 6px; }
+@media (max-width: 900px) { .movers .mv-grid { grid-template-columns: minmax(0, 1fr); } }
+.mv { margin: 0; padding: 0; }
+.mv li { list-style: none; display: flex; justify-content: space-between; gap: 10px; padding: 4px 12px; font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.mv li > span:last-child { font-family: var(--font-num); font-size: 13px; }
+.mv .sub { color: var(--muted); font-size: 11px; margin-left: 8px; }

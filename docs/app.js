@@ -92,6 +92,29 @@
   }
 
   /* ---------- Vistas ---------- */
+
+  /* ---------- Qué se movió hoy: mayores subas y bajas del día entre todos los activos ---------- */
+  const GRUPO = { indices_eeuu: "Índice", futuros: "Futuro", volatilidad: "Volatilidad", indices_mundo: "Índice", monedas: "Moneda", commodities: "Commodity",
+    cripto: "Cripto", argentina: "Índice AR", sectores: "Sector EE.UU.", bonos_etf: "ETF bonos", adrs: "ADR", megacaps_eeuu: "Acción EE.UU.", megacaps_global: "Acción global", empresas_seleccion: "Tu selección" };
+  function movers() {
+    const mk = blk(P, "markets") || {}, arm = blk(P, "ar_market") || {};
+    const seen = new Set(), all = [];
+    const add = (nombre, tipo, d, key) => { if (d == null || !isFinite(d) || Math.abs(d) > 40 || seen.has(key)) return; seen.add(key); all.push({ nombre, tipo, d }); };
+    for (const [g, arr] of Object.entries(mk)) for (const r of arr || []) add(r.nombre, GRUPO[g] || g, r.d, "Y:" + r.id);
+    for (const r of [...(arm.panel_lider || []), ...(arm.acciones || [])]) add(r.ticker, "Acción AR", r.d, "A:" + r.ticker);
+    for (const r of [...(arm.soberanos || []), ...(arm.bopreal || [])]) add(r.ticker, "Bono USD", r.d, "B:" + r.ticker);
+    for (const r of [...(arm.pesos_fija || []), ...(arm.cer_tamar || [])]) add(r.ticker, r.tipo || "Bono $", r.d, "P:" + r.ticker);
+    if (!all.length) return "";
+    const ord = [...all].sort((a, b) => b.d - a.d);
+    const li = (r) => `<li><span>${esc(r.nombre)}<span class="sub">${esc(r.tipo)}</span></span>${chg(r.d)}</li>`;
+    const hoy = upcoming().filter((e) => new Date(e.t).toDateString() === new Date().toDateString());
+    const nUp = all.filter((r) => r.d > 0).length;
+    return `<section class="panel lead movers"><h2>Qué se movió hoy <span class="src">${all.length} activos · ${nUp} suben, ${all.length - nUp} bajan o sin cambio</span></h2>
+      <div class="mv-grid"><div><h3>Mayores subas</h3><ul class="mv">${ord.slice(0, 6).map(li).join("")}</ul></div>
+      <div><h3>Mayores bajas</h3><ul class="mv">${ord.slice(-6).reverse().map(li).join("")}</ul></div>
+      <div><h3>Agenda de hoy</h3>${hoy.length ? eventsList(hoy) : `<div class="empty">Sin datos ni decisiones importantes hoy.</div>`}</div></div></section>`;
+  }
+
   function viewResumen() {
     const mk = blk(P, "markets") || {};
     const all = Object.values(mk).flat();
@@ -126,7 +149,7 @@
 
     const gl = table(head, priceRows(pick(["DXY", "EURUSD", "USDBRL", "SX5E", "N225", "BVSP", "WTI", "BRENT", "ORO", "PLATA", "SOJA", "TRIGO", "MAIZ", "BTC"]), cols));
 
-    return `<div class="cols-3">${panel("EE.UU. y Fed", us, { lead: true, meta: meta(P, "markets") })}${panel("Argentina", ar, { meta: meta(P, "dolares") })}${panel("Global y commodities", gl, { meta: meta(P, "markets") })}</div>
+    return `${movers()}<div class="cols-3">${panel("EE.UU. y Fed", us, { lead: true, meta: meta(P, "markets") })}${panel("Argentina", ar, { meta: meta(P, "dolares") })}${panel("Global y commodities", gl, { meta: meta(P, "markets") })}</div>
       <div class="cols-2">${panel("Próximos eventos", eventsList(upcoming().slice(0, 5)), { src: "" })}${panel("Titulares", newsList(mergedNews().slice(0, 5)), { meta: meta(P, "news") })}</div>`;
   }
 
@@ -267,8 +290,21 @@
     const beT = panel("Inflación implícita (tasa fija vs. CER)", table(["Letra", "Vto.", "TEM fija", "TEM real CER", "Inflación mensual implícita", "REM promedio"],
         be.map((r) => [r.ticker, dmy(r.vto), pct(r.tem), pct(r.tem_real_cer), `<b>${pct(r.inflacion_implicita)}</b>`, pct(remHasta(r.vto), 1)]))
       + `<div class="note">Inflación mensual que iguala el rendimiento de la letra a tasa fija con el de un bono CER del mismo plazo (curva CER interpolada). Si es mayor que el REM, el mercado espera más inflación que los analistas.</div>`, { meta: m });
+    // dólar de equilibrio: el mayorista al vencimiento que iguala invertir en la letra con comprar dólares hoy
+    const cot = (blk(P, "dolares") || {}).cotizaciones || [], ban = blk(D, "bandas"), ipm = (blk(D, "ipc") || {}).mensual;
+    const a35 = byId(cot, "mayorista").venta;
+    const techoAl = (dias) => (ban && ban.techo && ipm != null ? ban.techo * Math.pow(1 + ipm / 100, dias / 30.4) : null);
+    const eqRows = a35 ? pf.filter((r) => r.pago_final && r.dias > 0).map((r) => {
+      const eq = a35 * r.pago_final / r.precio, te = techoAl(r.dias);
+      const vsTecho = te ? (eq / te - 1) * 100 : null;
+      return [r.ticker, dmy(r.vto), r.dias, pct(r.tem), `<b>${fmt(eq, 0)}</b>`, chg((eq / a35 - 1) * 100, 1), te ? fmt(te, 0) : "—",
+        vsTecho == null ? "—" : `<span class="${vsTecho > 0 ? "up" : "flat"}">${fmt(vsTecho, 1)}%</span>`];
+    }) : [];
+    const eqT = panel("Dólar de equilibrio (carry trade)", table(["Letra", "Vto.", "Días", "TEM", "Dólar equilibrio", "Suba que tolera", "Techo banda est.", "Equilibrio vs. techo"], eqRows)
+      + `<div class="note">Dólar mayorista al vencimiento que deja igual invertir en la letra que comprar dólares hoy (A3500 ${fmt(a35, 2)} × pago final ÷ precio). Si al vencimiento el dólar queda por debajo, la letra le ganó al dólar. Techo de banda estimado: el de hoy ajustado por la última inflación mensual (${pct(ipm, 1)}), según la regla vigente. Equilibrio vs. techo negativo = si el dólar llegara al techo, la letra perdería contra el dólar; en verde, gana igual.</div>`, { meta: m });
     const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d)])), { meta: m });
     return `${ref}<div class="cols-split"><div class="view">${fija}</div><div class="sticky">${fijaCurva}</div></div>
+      ${eqT}
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
       <div class="cols-split"><div class="view">${beT}</div><div>${tam}</div></div>`;
   }
@@ -296,9 +332,9 @@
     });
     const H = ["Empresa", "Cap. (US$ miles M)", "Precio US$", "Día", "Mes", "Año", "vs. máx. 52 sem.", "Próx. balance", "CCL impl. CEDEAR"];
     const m = meta(P, "markets");
-    return `${panel("Tu selección", table(H, rows(mk.empresas_seleccion)) + `<div class="note">Empresas elegidas a mano (Argentina, Brasil, tecno). Se editan en config/instruments.json → empresas_seleccion.</div>`, { lead: true, meta: m })}
-      ${panel("Grandes del S&P 500", table(H, rows(mk.megacaps_eeuu)), { meta: m })}
-      ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR o cotización en EE.UU. (Saudi Aramco en Riad, convertida a US$). Capitalización: cierre del día anterior. Ordenadas por capitalización; hacé clic en un encabezado para reordenar.</div>`, { meta: m })}`;
+    return `${panel("Grandes del S&P 500", table(H, rows(mk.megacaps_eeuu)), { lead: true, meta: m })}
+      ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR o cotización en EE.UU. (Saudi Aramco en Riad, convertida a US$). Capitalización: cierre del día anterior. Ordenadas por capitalización; hacé clic en un encabezado para reordenar.</div>`, { meta: m })}
+      ${panel("Tu selección", table(H, rows(mk.empresas_seleccion)) + `<div class="note">Empresas elegidas a mano (Argentina, Brasil, tecno). Se editan en config/instruments.json → empresas_seleccion.</div>`, { meta: m })}`;
   }
 
   // Bolsas abiertas o cerradas (lunes a viernes, sin contemplar feriados)
