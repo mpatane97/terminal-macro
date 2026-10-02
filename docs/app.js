@@ -130,6 +130,50 @@
       <div class="cols-2">${panel("Próximos eventos", eventsList(upcoming().slice(0, 5)), { src: "" })}${panel("Titulares", newsList(mergedNews().slice(0, 5)), { meta: meta(P, "news") })}</div>`;
   }
 
+  const chip = (estado, txt) => `<span class="chip ${estado}">${txt}</span>`;
+  function lecturaEEUU() {
+    const fed = blk(D, "fed") || {}, ts = blk(D, "treasuries") || {}, macro = blk(D, "us_macro") || [], sen = blk(D, "us_senales") || {};
+    const mk = blk(P, "markets") || {}, vix = (mk.volatilidad || [])[0] || {};
+    const t = Object.fromEntries((ts.curva || []).map((r) => [r.plazo, r.tasa]));
+    const cpi = macro.find((r) => r.id === "CPIAUCSL") || {}, pce = macro.find((r) => r.id === "PCEPILFE") || {}, un = macro.find((r) => r.id === "UNRATE") || {};
+    const mid = fed.rango ? (fed.rango[0] + fed.rango[1]) / 2 : null;
+    const c10_3 = t["10y"] != null && t["3m"] != null ? (t["10y"] - t["3m"]) * 100 : null;
+    const o0 = fedOutlook(0), oDic = [0, 1, 2].map(fedOutlook).find((o) => o && String(o.ev.fecha).slice(5, 7) === "12");
+    const dot26 = ((fed.dot_plot || {}).mediana || []).find((m) => m.periodo === String(new Date().getFullYear()));
+    const kalDic = oDic ? oDic.esperado - 0.125 : null;   // techo esperado → punto medio del rango
+    const realPce = mid != null && pce.valor != null ? mid - pce.valor : null, realCpi = mid != null && cpi.valor != null ? mid - cpi.valor : null;
+
+    // semáforo
+    const sem = [];
+    if (c10_3 != null) sem.push(["Curva 10 años – 3 meses", `${fmt(c10_3, 0)} pb`, c10_3 < 0 ? chip("rojo", "Invertida") : c10_3 < 50 ? chip("amarillo", "Plana") : chip("verde", "Con pendiente"), "Invertida: señal histórica de recesión"]);
+    if (vix.last != null) sem.push(["VIX", fmt(vix.last, 1), vix.last > 25 ? chip("rojo", "Estrés") : vix.last > 15 ? chip("amarillo", "Normal") : chip("verde", "Calma"), "Menos de 15 calma · más de 25 estrés"]);
+    if (cpi.valor != null && cpi.anterior != null) { const dlt = cpi.valor - cpi.anterior; sem.push(["Tendencia del CPI", `${fmt(cpi.anterior, 1)}% → ${fmt(cpi.valor, 1)}%`, dlt > 0.05 ? chip("rojo", "Acelera") : dlt < -0.05 ? chip("verde", "Desacelera") : chip("amarillo", "Estable"), "Interanual vs. mes anterior"]); }
+    if (sen.sahm != null) sem.push(["Regla de Sahm", fmt(sen.sahm, 2), sen.sahm >= 0.5 ? chip("rojo", "Señal de recesión") : sen.sahm >= 0.3 ? chip("amarillo", "Atención") : chip("verde", "Sin señal"), "Desempleo (prom. 3 meses) vs. mínimo de 12 meses · 0,5 = señal"]);
+
+    // mercado vs Fed
+    const mvf = [];
+    if (kalDic != null && dot26) mvf.push(["Tasa a fin de año", `${fmt(kalDic, 2)}%`, `${fmt(dot26.tasa, 2)}%`, kalDic - dot26.tasa]);
+    if (t["2y"] != null && mid != null) mvf.push(["Treasury 2 años vs. fed funds", `${fmt(t["2y"], 2)}%`, `${fmt(mid, 2)}%`, t["2y"] - mid]);
+
+    // lectura automática
+    const L = [];
+    if (cpi.valor != null) L.push(`La inflación ${cpi.valor > cpi.anterior + 0.05 ? "acelera" : cpi.valor < cpi.anterior - 0.05 ? "desacelera" : "se mantiene"}: el CPI interanual pasó de ${fmt(cpi.anterior, 1)}% a ${fmt(cpi.valor, 1)}%, y el Core PCE (la medida que sigue la Fed) está en ${fmt(pce.valor, 1)}%, ${pce.valor > 2.2 ? "por encima" : "cerca"} del objetivo de 2%.`);
+    if (realPce != null) L.push(`La tasa real de la Fed (fed funds menos Core PCE) es ${fmt(realPce, 1)}%: la política monetaria es ${realPce > 1 ? "restrictiva" : realPce >= 0 ? "neutral o apenas restrictiva" : "expansiva"}.`);
+    if (o0) L.push(`Para la próxima reunión (${dmy(o0.ev.fecha)}) Kalshi asigna ${fmt(o0.hold, 0)}% a mantener, ${fmt(o0.hike, 0)}% a una suba y ${fmt(o0.cut, 0)}% a un recorte.`);
+    if (kalDic != null && dot26) { const dd = kalDic - dot26.tasa; L.push(`El mercado espera la tasa en ${fmt(kalDic, 2)}% a fin de año, ${Math.abs(dd) < 0.1 ? "en línea con" : dd > 0 ? "por encima de" : "por debajo de"} la mediana del dot plot (${fmt(dot26.tasa, 2)}%).`); }
+    if (c10_3 != null) L.push(`La curva 10 años – 3 meses está ${c10_3 < 0 ? "invertida" : c10_3 < 50 ? "casi plana" : "con pendiente positiva"} (${fmt(c10_3, 0)} pb)${t["10y"] != null ? `, con el 10 años en ${fmt(t["10y"], 2)}%` : ""}.`);
+    if (un.valor != null && sen.sahm != null) L.push(`El desempleo está en ${fmt(un.valor, 1)}% y la regla de Sahm en ${fmt(sen.sahm, 2)}: ${sen.sahm >= 0.5 ? "activó la señal de recesión" : sen.sahm >= 0.3 ? "se acerca a la señal de recesión (0,5)" : "lejos de la señal de recesión (0,5)"}.`);
+
+    const lect = `<ul class="lectura">${L.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><div class="note">Texto generado con reglas fijas a partir de los datos de esta pestaña; no es una recomendación.</div>`;
+    const semT = table(["Señal", "Valor", "Estado", "Cómo leerla"], sem, [3]);
+    const mvfT = table(["", "Mercado", "Fed", "Diferencia"], mvf.map((r) => [r[0], r[1], r[2], chg(r[3] * 100, 0, " pb")]))
+      + `<div class="note">Mercado: Kalshi (diciembre) y Treasury 2 años. Fed: mediana del dot plot y punto medio del rango.</div>`;
+    const realT = table(["", "Tasa real"], [["Fed funds − CPI", realCpi != null ? chg(realCpi, 2) : "—"], ["Fed funds − Core PCE", realPce != null ? chg(realPce, 2) : "—"]])
+      + `<div class="note">Positiva: la política frena la economía. Negativa: la estimula.</div>`;
+    return `${panel("Lectura del momento", lect, { lead: true, src: "" })}
+      <div class="cols-2">${panel("Semáforo de señales", semT, { src: "" })}<div class="view">${panel("Mercado vs. Fed", mvfT, { src: "" })}${panel("Tasa real", realT, { src: "" })}</div></div>`;
+  }
+
   function viewEEUU() {
     const fed = blk(D, "fed") || {}, ts = blk(D, "treasuries") || {}, curva = ts.curva || [];
     const yrs = { "3m": 0.25, "2y": 2, "5y": 5, "10y": 10, "30y": 30 };
@@ -149,7 +193,7 @@
     const macroHtml = table(["Indicador", "Período", "Último", "Anterior", "Próximo"], macro.map((r) => [
       `${esc(r.nombre)}<span class="sub">${esc(r.tema)}</span>`, esc(r.periodo || "—"),
       `${fmt(r.valor, r.unidad === "miles" ? 0 : 1)}<span class="sub">${esc(r.unidad)}</span>`, fmt(r.anterior, r.unidad === "miles" ? 0 : 1), dmy(r.proximo)]));
-    return `<div class="cols-2">${panel("Fed", fedHtml, { lead: true, meta: meta(D, "fed") })}${panel("Treasuries", tsyHtml, { meta: meta(D, "treasuries") })}</div>
+    return `${lecturaEEUU()}<div class="cols-2">${panel("Fed", fedHtml, { meta: meta(D, "fed") })}${panel("Treasuries", tsyHtml, { meta: meta(D, "treasuries") })}</div>
       ${panel("Macro EE.UU.", macroHtml, { meta: meta(D, "us_macro") })}`;
   }
 
@@ -241,6 +285,21 @@
     return `${head}<div class="cols-2">${panelT}<div class="view">${adrs}${ced}</div></div>`;
   }
 
+  function viewEmpresas() {
+    const mk = blk(P, "markets") || {}, cap = blk(D, "megacaps_info") || {}, earn = blk(D, "earnings") || [];
+    const cm = (blk(P, "ar_market") || {}).cedears_mega || {};
+    const prox = (id) => { const e = earn.filter((r) => r.ticker === id).sort((a, b) => (a.fecha < b.fecha ? -1 : 1))[0]; return e ? dmy(e.fecha) : "—"; };
+    const rows = (arr) => [...(arr || [])].sort((a, b) => (cap[b.id] ?? 0) - (cap[a.id] ?? 0)).map((r) => {
+      const c = r.cedear ? cm[r.cedear] : null;
+      return [`${esc(r.nombre)}<span class="sub">${esc(r.id)}</span>`, cap[r.id] != null ? fmt(cap[r.id], 0) : "—", fmt(r.last, 2), chg(r.d), chg(r.m), chg(r.y), chg(r.dd52, 1), prox(r.id),
+        c ? `${fmt(c.ccl, 0)}` : (r.cedear ? "—" : `<span class="na">sin CEDEAR</span>`)];
+    });
+    const H = ["Empresa", "Cap. (US$ miles M)", "Precio US$", "Día", "Mes", "Año", "vs. máx. 52 sem.", "Próx. balance", "CCL impl. CEDEAR"];
+    const m = meta(P, "markets");
+    return `${panel("Top 20 del S&P 500", table(H, rows(mk.megacaps_eeuu)), { lead: true, meta: m })}
+      ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR o cotización en EE.UU. (Saudi Aramco en Riad, convertida a US$). Capitalización: cierre del día anterior. Ordenadas por capitalización; hacé clic en un encabezado para reordenar.</div>`, { meta: m })}`;
+  }
+
   // Bolsas abiertas o cerradas (lunes a viernes, sin contemplar feriados)
   const BOLSAS = [["Nueva York", "America/New_York", 570, 960], ["Londres", "Europe/London", 480, 990], ["Fráncfort", "Europe/Berlin", 540, 1050],
     ["Tokio", "Asia/Tokyo", 540, 930], ["Hong Kong", "Asia/Hong_Kong", 570, 960], ["San Pablo", "America/Sao_Paulo", 600, 1020], ["BYMA", "America/Argentina/Buenos_Aires", 660, 1020]];
@@ -258,7 +317,7 @@
     const g = (k) => table(head, priceRows(mk[k], Object.keys(VARS)));
     const m = meta(P, "markets");
     return `${bolsas()}<div class="cols-2">${panel("EE.UU.", g("indices_eeuu") + `<h3>Futuros</h3>` + g("futuros") + `<h3>Volatilidad</h3>` + g("volatilidad"), { lead: true, meta: m })}
-      ${panel("Resto del mundo", g("indices_mundo"), { meta: m })}</div>
+      <div class="view">${panel("Resto del mundo", g("indices_mundo"), { meta: m })}${panel("Sectores del S&P 500", g("sectores"), { meta: m })}</div></div>
       <div class="cols-2"><div class="view">${panel("Monedas", g("monedas"), { meta: m })}${panel("Bonos globales (ETFs)", g("bonos_etf"), { meta: m })}</div>${panel("Commodities y cripto", g("commodities") + `<h3>Cripto</h3>` + g("cripto"), { meta: m })}</div>`;
   }
 
@@ -268,6 +327,7 @@
     for (const r of blk(D, "calendar_us") || []) if (new Date(r.fecha) >= new Date()) ev.push({ t: r.fecha, txt: `EE.UU. · ${r.evento}${r.esperado ? ` · esp. ${r.esperado}` : ""}${r.previo ? ` · prev. ${r.previo}` : ""}`, imp: r.impacto });
     for (const r of blk(D, "calendar_ar") || []) ev.push({ t: `${r.fecha}T${r.hora || "00:00"}:00-03:00`, txt: `Argentina · ${r.evento}`, imp: "High" });
     for (const f of (blk(D, "fed") || {}).fomc || []) ev.push({ t: `${f}T15:00:00-03:00`, txt: "Fed · Decisión FOMC", imp: "High" });
+    for (const b of ((blk(D, "calendar_intl") || {}).bancos || [])) ev.push({ t: `${b.fecha}T${b.hora || "08:00"}:00-03:00`, txt: `${b.banco} · Decisión de tasa`, imp: "High" });
     return ev.filter((e) => new Date(e.t) >= (() => { const t0 = new Date(); t0.setHours(0, 0, 0, 0); return t0; })()).sort((a, b) => (new Date(a.t) - new Date(b.t)));
   }
   function eventsList(ev) {
@@ -279,20 +339,25 @@
   }
 
   function viewCalendario() {
+    const in14 = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const us = (blk(D, "calendar_us") || []).filter((r) => new Date(r.fecha) >= hoy);
     const usHtml = table(["Fecha", "Dato", "Impacto", "Esperado", "Previo"], us.map((r) => [hhmm(r.fecha), esc(r.evento), r.impacto === "High" ? "Alto" : "Medio", esc(r.esperado || "—"), esc(r.previo || "—")]), [1]);
     const arHtml = table(["Fecha", "Evento"], (blk(D, "calendar_ar") || []).map((r) => [dmy(r.fecha) + (r.hora ? ` ${r.hora}` : ""), esc(r.evento)]), [1]);
     const fedHtml = table(["Fecha", "Reunión"], ((blk(D, "fed") || {}).fomc || []).map((f) => [dmy(f), "Decisión FOMC"]), [1]);
-    const earnHtml = table(["Fecha", "Empresa", "Momento", "EPS est."], (blk(D, "earnings") || []).map((r) => [dmy(r.fecha), r.ticker, esc(r.hora || "—"), fmt(r.eps_estimado, 2)]), [1, 2]);
+    const earnHtml = table(["Fecha", "Empresa", "Momento", "EPS est."], (blk(D, "earnings") || []).filter((r) => r.fecha <= in14).map((r) => [dmy(r.fecha), r.ticker, esc(r.hora || "—"), fmt(r.eps_estimado, 2)]), [1, 2]);
+    const intl = blk(D, "calendar_intl") || {};
+    const intlDatos = (intl.datos_semana || []).filter((r) => new Date(r.fecha) >= hoy);
+    const intlHtml = table(["Fecha", "Banco central", "Hora AR"], (intl.bancos || []).slice(0, 8).map((r) => [dmy(r.fecha), esc(r.banco), esc(r.hora || "—")]), [1])
+      + `<h3>Datos de alto impacto · esta semana</h3>` + table(["Fecha", "País", "Dato", "Esperado", "Previo"], intlDatos.map((r) => [hhmm(r.fecha), esc(r.pais), esc(r.evento), esc(r.esperado || "—"), esc(r.previo || "—")]), [1, 2]);
     const n = blk(P, "news") || {};
     return `<div class="cols-2">${panel("Datos de EE.UU. · esta semana", usHtml, { lead: true, meta: meta(D, "calendar_us") })}${panel("Earnings · próximas 2 semanas", earnHtml, { meta: meta(D, "earnings") })}</div>
-      <div class="cols-2">${panel("Argentina", arHtml, { meta: meta(D, "calendar_ar") })}${panel("Fed", fedHtml, { meta: meta(D, "fed") })}</div>
+      <div class="cols-2"><div class="view">${panel("Argentina", arHtml, { meta: meta(D, "calendar_ar") })}${panel("Fed", fedHtml, { meta: meta(D, "fed") })}</div>${panel("Internacional", intlHtml, { meta: meta(D, "calendar_intl") })}</div>
       <div class="cols-2">${panel("Noticias EE.UU.", newsList(n.eeuu || []), { meta: meta(P, "news") })}${panel("Noticias Argentina", newsList(n.argentina || []), { meta: meta(P, "news") })}</div>`;
   }
 
   const VIEWS = { resumen: viewResumen, eeuu: viewEEUU, ar_macro: viewArMacro, ar_usd: viewArUSD, ar_pesos: viewArPesos, ar_acciones: viewArAcciones,
-    mercados: viewMercados, calendario: viewCalendario };
+    mercados: viewMercados, empresas: viewEmpresas, calendario: viewCalendario };
   let current = "resumen";
 
   function render() {

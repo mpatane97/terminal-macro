@@ -120,3 +120,10 @@ thead th[data-dir="desc"]::after { content: " ▼"; color: var(--accent); }
 .strip i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: middle; background: var(--muted); }
 .strip .abierta i { background: var(--up); } .strip .cerrada { color: var(--muted); }
 nav.tabs button { padding: 5px 9px; }
+
+.chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font: 600 11px var(--font-ui); letter-spacing: .04em; }
+.chip.verde { color: var(--up); background: color-mix(in srgb, var(--up) 16%, transparent); }
+.chip.amarillo { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.chip.rojo { color: var(--down); background: color-mix(in srgb, var(--down) 16%, transparent); }
+.lectura { margin: 0; padding: 8px 14px 4px 30px; display: grid; gap: 6px; font-size: 14px; line-height: 1.45; max-width: 110ch; }
+.lectura li::marker { color: var(--accent); }
