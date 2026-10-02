@@ -103,3 +103,5 @@ td .sub { color: var(--muted); font-size: 11px; margin-left: 6px; font-family: v
 .note { padding: 4px 12px 8px; color: var(--muted); font-size: 12px; }
 footer { margin-top: 24px; color: var(--muted); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* columnas de texto en tablas (2ª columna de calendario) */
+td.txt, th.txt { text-align: left; }

@@ -20,8 +20,8 @@
     const src = opts.src ?? (m.source ? `${esc(m.source)} · ${hhmm(m.updated)}` : "");
     return `<section class="panel ${opts.lead ? "lead" : ""}"><h2><span>${esc(title)}${stale}</span><span class="src">${src}</span></h2><div class="body">${inner}</div></section>`;
   }
-  const table = (head, rows) => rows.length
-    ? `<div class="scroll"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+  const table = (head, rows, left = []) => rows.length
+    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">Sin datos todavía.</div>`;
   const byId = (arr, id) => (arr || []).find((x) => x.id === id) || {};
 
@@ -162,7 +162,8 @@
       + (pf.some((r) => r.tem != null)
         ? curve([{ name: "Tasa fija", cls: "s1", line: true, points: pf.filter((r) => r.tem != null).map((r) => ({ x: r.dias, y: r.tem, label: r.ticker })) }], { xlabel: "Días al vencimiento", ylabel: "TEM %", ydec: 2, title: "Curva de tasa fija" })
         : `<div class="note">La TEM y la curva aparecen cuando se carga el pago final de cada letra en config/bonos.json.</div>`)
-      + `<h3>CER y TAMAR</h3>` + table(["Bono", "Precio", "Día"], (arm.cer_tamar || []).map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d)]));
+      + `<h3>CER y TAMAR</h3>` + table(["Bono", "Tipo", "Vto.", "Precio", "Día", "TIR real", "Dur. mod."], (arm.cer_tamar || []).map((r) => [r.ticker, r.tipo || "", dmy(r.vto), fmt(r.precio, 2), chg(r.d), r.tir != null ? fmt(r.tir, 2) + "%" : "—", fmt(r.dur_mod, 2)]))
+      + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono. TAMAR: solo precio.</div>`;
 
     const tasas = [["TAMAR", bc.tamar], ["BADLAR", bc.badlar], ["Plazo fijo 30 d", bc.plazo_fijo]];
     const tasasHtml = table(["", "TNA", "Fecha"], tasas.map(([n, v]) => [n, v ? fmt(v.valor, 2) + "%" : "—", dmy(v?.fecha)]))
@@ -196,10 +197,10 @@
   function upcoming() {
     const now = new Date().toISOString();
     const ev = [];
-    for (const r of blk(D, "calendar_us") || []) if ((r.fecha || "") >= now.slice(0, 10)) ev.push({ t: r.fecha, txt: `EE.UU. · ${r.evento}${r.esperado ? ` · esp. ${r.esperado}` : ""}${r.previo ? ` · prev. ${r.previo}` : ""}`, imp: r.impacto });
+    for (const r of blk(D, "calendar_us") || []) if (new Date(r.fecha) >= new Date()) ev.push({ t: r.fecha, txt: `EE.UU. · ${r.evento}${r.esperado ? ` · esp. ${r.esperado}` : ""}${r.previo ? ` · prev. ${r.previo}` : ""}`, imp: r.impacto });
     for (const r of blk(D, "calendar_ar") || []) ev.push({ t: `${r.fecha}T${r.hora || "00:00"}:00-03:00`, txt: `Argentina · ${r.evento}`, imp: "High" });
     for (const f of (blk(D, "fed") || {}).fomc || []) ev.push({ t: `${f}T15:00:00-03:00`, txt: "Fed · Decisión FOMC", imp: "High" });
-    return ev.filter((e) => e.t >= now.slice(0, 10)).sort((a, b) => (a.t < b.t ? -1 : 1));
+    return ev.filter((e) => new Date(e.t) >= (() => { const t0 = new Date(); t0.setHours(0, 0, 0, 0); return t0; })()).sort((a, b) => (new Date(a.t) - new Date(b.t)));
   }
   function eventsList(ev) {
     return ev.length ? `<ul class="events">${ev.map((e) => `<li><span class="t">${hhmm(e.t)}</span><span class="imp-${esc(e.imp)}">${esc(e.txt)}</span></li>`).join("")}</ul>` : `<div class="empty">Sin eventos cargados.</div>`;
@@ -210,11 +211,12 @@
   }
 
   function viewCalendario() {
-    const us = blk(D, "calendar_us") || [];
-    const usHtml = table(["Fecha", "Dato", "Impacto", "Esperado", "Previo"], us.map((r) => [hhmm(r.fecha), esc(r.evento), r.impacto === "High" ? "Alto" : "Medio", esc(r.esperado || "—"), esc(r.previo || "—")]));
-    const arHtml = table(["Fecha", "Evento"], (blk(D, "calendar_ar") || []).map((r) => [dmy(r.fecha) + (r.hora ? ` ${r.hora}` : ""), esc(r.evento)]));
-    const fedHtml = table(["Fecha", "Reunión"], ((blk(D, "fed") || {}).fomc || []).map((f) => [dmy(f), "Decisión FOMC"]));
-    const earnHtml = table(["Fecha", "Empresa", "Momento", "EPS est."], (blk(D, "earnings") || []).map((r) => [dmy(r.fecha), r.ticker, esc(r.hora || "—"), fmt(r.eps_estimado, 2)]));
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const us = (blk(D, "calendar_us") || []).filter((r) => new Date(r.fecha) >= hoy);
+    const usHtml = table(["Fecha", "Dato", "Impacto", "Esperado", "Previo"], us.map((r) => [hhmm(r.fecha), esc(r.evento), r.impacto === "High" ? "Alto" : "Medio", esc(r.esperado || "—"), esc(r.previo || "—")]), [1]);
+    const arHtml = table(["Fecha", "Evento"], (blk(D, "calendar_ar") || []).map((r) => [dmy(r.fecha) + (r.hora ? ` ${r.hora}` : ""), esc(r.evento)]), [1]);
+    const fedHtml = table(["Fecha", "Reunión"], ((blk(D, "fed") || {}).fomc || []).map((f) => [dmy(f), "Decisión FOMC"]), [1]);
+    const earnHtml = table(["Fecha", "Empresa", "Momento", "EPS est."], (blk(D, "earnings") || []).map((r) => [dmy(r.fecha), r.ticker, esc(r.hora || "—"), fmt(r.eps_estimado, 2)]), [1, 2]);
     const n = blk(P, "news") || {};
     return `<div class="cols-2">${panel("Datos de EE.UU. · esta semana", usHtml, { lead: true, meta: meta(D, "calendar_us") })}${panel("Earnings · próximas 2 semanas", earnHtml, { meta: meta(D, "earnings") })}</div>
       <div class="cols-2">${panel("Argentina", arHtml, { meta: meta(D, "calendar_ar") })}${panel("Fed", fedHtml, { meta: meta(D, "fed") })}</div>
