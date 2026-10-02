@@ -419,12 +419,6 @@
         "nombre": "Johnson & Johnson",
         "yahoo": "JNJ",
         "cedear": "JNJ"
-      },
-      {
-        "id": "HD",
-        "nombre": "Home Depot",
-        "yahoo": "HD",
-        "cedear": "HD"
       }
     ],
     "megacaps_global": [
@@ -471,12 +465,6 @@
         "cedear": "TM"
       },
       {
-        "id": "NVO",
-        "nombre": "Novo Nordisk",
-        "yahoo": "NVO",
-        "cedear": "NVO"
-      },
-      {
         "id": "AZN",
         "nombre": "AstraZeneca",
         "yahoo": "AZN",
@@ -487,6 +475,74 @@
         "nombre": "LVMH",
         "yahoo": "LVMUY",
         "cedear": null
+      }
+    ],
+    "empresas_seleccion": [
+      {
+        "id": "NU",
+        "nombre": "Nu Holdings",
+        "yahoo": "NU",
+        "cedear": "NU"
+      },
+      {
+        "id": "MELI",
+        "nombre": "MercadoLibre",
+        "yahoo": "MELI",
+        "cedear": "MELI"
+      },
+      {
+        "id": "AMD",
+        "nombre": "AMD",
+        "yahoo": "AMD",
+        "cedear": "AMD"
+      },
+      {
+        "id": "PLTR",
+        "nombre": "Palantir",
+        "yahoo": "PLTR",
+        "cedear": "PLTR"
+      },
+      {
+        "id": "KO",
+        "nombre": "Coca-Cola",
+        "yahoo": "KO",
+        "cedear": "KO"
+      },
+      {
+        "id": "VIST",
+        "nombre": "Vista Energy",
+        "yahoo": "VIST",
+        "cedear": "VIST"
+      },
+      {
+        "id": "GLOB",
+        "nombre": "Globant",
+        "yahoo": "GLOB",
+        "cedear": "GLOB"
+      },
+      {
+        "id": "DESP",
+        "nombre": "Despegar",
+        "yahoo": "DESP",
+        "cedear": "DESP"
+      },
+      {
+        "id": "PBR",
+        "nombre": "Petrobras",
+        "yahoo": "PBR",
+        "cedear": "PBR"
+      },
+      {
+        "id": "VALE",
+        "nombre": "Vale",
+        "yahoo": "VALE",
+        "cedear": "VALE"
+      },
+      {
+        "id": "SPCX",
+        "nombre": "SpaceX",
+        "yahoo": "SPCX",
+        "cedear": "SPCX"
       }
     ]
   },
@@ -589,8 +645,7 @@
     "XOM",
     "NFLX",
     "COST",
-    "JNJ",
-    "HD"
+    "JNJ"
   ],
   "watchlist": [],
   "fomc_2026_2027": [
