@@ -1,0 +1,9 @@
+{
+  "_nota": "Carga manual. Fuente: calendario de difusión INDEC 2º semestre 2026 (PDF). Agregar licitaciones del Tesoro cuando se anuncien.",
+  "eventos": [
+    {"fecha": "2026-10-13", "hora": "16:00", "evento": "IPC septiembre (INDEC)"},
+    {"fecha": "2026-10-21", "hora": "16:00", "evento": "EMAE agosto (INDEC)"},
+    {"fecha": "2026-11-12", "hora": "16:00", "evento": "IPC octubre (INDEC)"},
+    {"fecha": "2026-12-15", "hora": "16:00", "evento": "IPC noviembre (INDEC)"}
+  ]
+}

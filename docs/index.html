@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terminal Macro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand">TERMINAL MACRO</span>
+  <nav class="tabs" aria-label="Secciones">
+    <button data-v="resumen" aria-selected="true">Resumen</button>
+    <button data-v="eeuu">EE.UU. y Fed</button>
+    <button data-v="argentina">Argentina</button>
+    <button data-v="mercados">Mercados globales</button>
+    <button data-v="calendario">Calendario</button>
+  </nav>
+  <div class="status" id="status">Cargando…</div>
+</header>
+<div class="sample-banner" id="sample" hidden>DATOS DE EJEMPLO: esta vista previa usa números inventados para mostrar el diseño. La versión publicada en GitHub muestra datos reales.</div>
+<main id="view" class="view"></main>
+<footer>Datos con demora. Fuentes y hora de cada bloque en su encabezado; un punto amarillo indica que la fuente no respondió y se muestra el último dato válido. Uso personal, no es asesoramiento financiero.</footer>
+<script src="app.js"></script>
+</body>
+</html>
