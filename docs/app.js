@@ -296,7 +296,8 @@
     });
     const H = ["Empresa", "Cap. (US$ miles M)", "Precio US$", "Día", "Mes", "Año", "vs. máx. 52 sem.", "Próx. balance", "CCL impl. CEDEAR"];
     const m = meta(P, "markets");
-    return `${panel("Top 20 del S&P 500", table(H, rows(mk.megacaps_eeuu)), { lead: true, meta: m })}
+    return `${panel("Tu selección", table(H, rows(mk.empresas_seleccion)) + `<div class="note">Empresas elegidas a mano (Argentina, Brasil, tecno). Se editan en config/instruments.json → empresas_seleccion.</div>`, { lead: true, meta: m })}
+      ${panel("Grandes del S&P 500", table(H, rows(mk.megacaps_eeuu)), { meta: m })}
       ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR o cotización en EE.UU. (Saudi Aramco en Riad, convertida a US$). Capitalización: cierre del día anterior. Ordenadas por capitalización; hacé clic en un encabezado para reordenar.</div>`, { meta: m })}`;
   }
 
