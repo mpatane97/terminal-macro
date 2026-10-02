@@ -123,8 +123,10 @@ def ar_market():
     def usd_row(t):
         ars, usd = px.get(t), px.get(_usd_ticker(t))
         p_usd = num(usd.get("c")) if usd else None
+        vol = num(usd.get("v")) if usd else None
         row = {"ticker": t, "ars": num(ars.get("c")) if ars else None, "usd": p_usd,
-               "d": num(usd.get("pct_change")) if usd else None, **_chg(hist, t + "D", p_usd)}
+               "d": num(usd.get("pct_change")) if usd else None, "vol": vol / 1e6 if vol else None,
+               **_chg(hist, _usd_ticker(t), p_usd)}
         if t in flows_by_ticker and p_usd:
             m = bonds.bond_metrics(flows_by_ticker[t], p_usd, settle)
             if m:
@@ -143,8 +145,10 @@ def ar_market():
         if not mat or mat <= settle:
             continue
         p = num(r.get("c"))
+        vol = num(r.get("v"))
         row = {"ticker": sym, "tipo": "LECAP" if sym.startswith("S") else "BONCAP", "precio": p,
-               "vto": mat.isoformat(), "dias": (mat - settle).days, "d": num(r.get("pct_change"))}
+               "vto": mat.isoformat(), "dias": (mat - settle).days, "d": num(r.get("pct_change")),
+               "pago_final": num(payoffs.get(sym)), "vol": vol / 1e6 if vol else None}
         t = bonds.tem(p, payoffs.get(sym), settle, mat)
         if t:
             row.update(t)
@@ -152,10 +156,13 @@ def ar_market():
     pesos.sort(key=lambda r: r["vto"])
 
     cer_tamar = _cer_tamar(px, settle, a)
+    _breakeven(pesos, cer_tamar)
 
     stocks = {r["symbol"]: r for r in _d912("/live/arg_stocks")}
     acciones = [{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
                  **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a["acciones"]]
+    panel = [{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
+              **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a.get("panel_lider", [])]
 
     ced = {r["symbol"]: r for r in _d912("/live/arg_cedears")}
     mep = {r.get("ticker"): r for r in _d912("/live/mep")}
@@ -173,13 +180,13 @@ def ar_market():
     for r in soberanos + bopreal:
         if r.get("usd"):
             hist.setdefault(_usd_ticker(r["ticker"]), {})[today] = r["usd"]
-    for r in acciones + cedears:
+    for r in acciones + panel + cedears:
         if r.get("precio"):
             hist.setdefault(r["ticker"], {})[today] = r["precio"]
     write_json(HIST / "ar_closes.json", _trim(hist))
 
     return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar,
-            "acciones": acciones, "cedears": cedears, "liquidacion": settle.isoformat()}, \
+            "acciones": acciones, "panel_lider": panel, "cedears": cedears, "liquidacion": settle.isoformat()}, \
         "data912.com (secundaria); TIR y TEM: cálculo propio"
 
 
@@ -200,12 +207,37 @@ def _cer_tamar(px, settle, a):
                 coef = cer_t10 / fam["cer_inicial"]
                 m = bonds.bond_metrics(fl, p / coef, settle)
                 if m:
-                    row.update({"tir": m["tir"], "dur_mod": m["dur_mod"], "coef_cer": coef})
+                    row.update({"tir": m["tir"], "dur_mod": m["dur_mod"], "coef_cer": coef,
+                                "dias_vto": m["dias_vto"], "dias_prox": m["dias_prox"]})
         out.append(row)
     for t in a.get("tamar", []):
         r = px.get(t, {})
         out.append({"ticker": t, "tipo": "TAMAR", "precio": num(r.get("c")), "d": num(r.get("pct_change"))})
     return out
+
+
+def _breakeven(pesos, cer):
+    """Inflación implícita: compara la TEM de cada letra a tasa fija con la tasa real CER del mismo plazo
+    (interpolada linealmente en días sobre la curva CER)."""
+    pts = sorted((r["dias_vto"], r["tir"]) for r in cer if r.get("tir") is not None and r.get("dias_vto"))
+    if len(pts) < 2:
+        return
+    for r in pesos:
+        if r.get("tem") is None:
+            continue
+        d = r["dias"]
+        if d <= pts[0][0]:
+            real = pts[0][1]
+        elif d >= pts[-1][0]:
+            real = pts[-1][1]
+        else:
+            for (d0, y0), (d1, y1) in zip(pts, pts[1:]):
+                if d0 <= d <= d1:
+                    real = y0 + (y1 - y0) * (d - d0) / (d1 - d0)
+                    break
+        real_tem = (1 + real / 100) ** (30 / 365) - 1
+        r["tem_real_cer"] = real_tem * 100
+        r["inflacion_implicita"] = ((1 + r["tem"] / 100) / (1 + real_tem) - 1) * 100
 
 
 def _trim(hist, keep=400):

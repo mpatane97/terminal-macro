@@ -119,7 +119,35 @@ def fed():
     today = today_ar().isoformat()
     proximas = [d for d in CFG["fomc_2026_2027"] if d >= today]
     return {"rango": [lo[1], hi[1]], "fecha_rango": hi[0], "effr": effr, "proximo_fomc": proximas[:1],
-            "fomc": proximas[:4]}, "FRED / NY Fed / federalreserve.gov"
+            "fomc": proximas[:4], "dot_plot": _dot_plot()}, "FRED / NY Fed / federalreserve.gov"
+
+
+def _dot_plot():
+    """Mediana de la tasa de fed funds del último Resumen de Proyecciones (SEP)."""
+    try:
+        cal = http_get("https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", as_json=False).text
+        fechas = sorted(set(re.findall(r"fomcprojtabl(\d{8})\.htm", cal)))
+        if not fechas:
+            return None
+        f = fechas[-1]
+        html = http_get(f"https://www.federalreserve.gov/monetarypolicy/fomcprojtabl{f}.htm", as_json=False).text
+        texto = re.sub(r"<[^>]+>", " ", html)
+        texto = re.sub(r"\s+", " ", texto)
+        i = texto.find("Federal funds rate")
+        if i < 0:
+            return None
+        cab = texto[:i]
+        anios = []
+        for y in re.findall(r"\b(20\d\d)\b", cab[cab.rfind("Median"):] if "Median" in cab else cab[-600:]):
+            if y not in anios:
+                anios.append(y)
+        vals = re.findall(r"-?\d+\.\d", texto[i:i + 300])
+        cols = anios[:len(vals) - 1] + ["Largo plazo"] if len(vals) > len(anios) else anios
+        n = min(len(cols), len(vals), 5)
+        return {"fecha": f"{f[:4]}-{f[4:6]}-{f[6:]}", "mediana": [{"periodo": cols[k], "tasa": float(vals[k])} for k in range(n)]}
+    except Exception as e:  # noqa: BLE001
+        log.warning("dot plot: %s", e)
+        return None
 
 
 def treasuries():
@@ -217,6 +245,8 @@ def ar_bcra():
             s = _bcra_series(78, days=60)
             mes = out["compras"]["fecha"][:7]
             out["compras"]["mes_acum"] = sum(v for d, v in s if d.startswith(mes) and v is not None)
+            s_anio = _bcra_series(78, days=(today_ar() - date(today_ar().year, 1, 1)).days + 1)
+            out["compras"]["anio_acum"] = sum(v for d, v in s_anio if d.startswith(str(today_ar().year)) and v is not None)
         except Exception as e:  # noqa: BLE001
             log.warning("compras BCRA: %s", e)
     return out, "API BCRA v4 (oficial)"
@@ -279,8 +309,12 @@ def ar_backfill():
     """Completa historia de precios de bonos, acciones y CEDEARs desde data912 si todavía es corta."""
     hist = read_json(HIST / "ar_closes.json", {}) or {}
     a = CFG["argentina"]
-    pedidos = [("bonds", t + "D") for t in a["soberanos_usd"] + a["bopreal"]] + \
-              [("stocks", t) for t in a["acciones"]] + [("cedears", t) for t in a["cedears"]]
+    def usd(t):
+        m = re.fullmatch(r"BPO([A-D]\d)", t)
+        return f"BP{m.group(1)}D" if m else t + "D"
+    acciones = list(dict.fromkeys(a["acciones"] + a.get("panel_lider", [])))
+    pedidos = [("bonds", usd(t)) for t in a["soberanos_usd"] + a["bopreal"]] + \
+              [("stocks", t) for t in acciones] + [("cedears", t) for t in a["cedears"]]
     hechos = 0
     cutoff = (today_ar() - timedelta(days=400)).isoformat()
     for kind, t in pedidos:
@@ -297,6 +331,40 @@ def ar_backfill():
             log.warning("historia %s: %s", t, e)
     write_json(HIST / "ar_closes.json", hist)
     return {"completados": hechos}, "data912.com (histórico)"
+
+
+def emae():
+    ids = "143.3_NO_PR_2004_A_31,143.3_NO_PR_2004_A_21"
+    js = http_get("https://apis.datos.gob.ar/series/api/series/",
+                  params={"ids": f"143.3_NO_PR_2004_A_31:percent_change,143.3_NO_PR_2004_A_21:percent_change_a_year_ago",
+                          "start_date": (today_ar() - timedelta(days=500)).isoformat(), "format": "json", "limit": 1000})
+    rows = [r for r in js["data"] if r[1] is not None]
+    last, prev = rows[-1], rows[-2]
+    return {"periodo": last[0][:7], "mensual_desest": last[1] * 100, "interanual": last[2] * 100 if last[2] is not None else None,
+            "mensual_anterior": prev[1] * 100}, "INDEC vía datos.gob.ar (oficial)"
+
+
+def rem():
+    rows = http_get("https://api.argentinadatos.com/v1/finanzas/rem/ultimo")
+    rows = [r for r in rows if r.get("muestra", "todos") == "todos"]
+    ipc = [r for r in rows if str(r.get("indicador", "")).startswith("Precios minoristas (IPC nivel general")]
+    mens = sorted((r for r in ipc if r.get("periodoTipo") == "mensual"), key=lambda r: r.get("periodoDesde") or "")
+    hoy = today_ar().isoformat()[:7]
+    mens = [r for r in mens if (r.get("periodoDesde") or "")[:7] >= hoy][:6] or mens[-6:]
+    p12 = next((r for r in ipc if r.get("periodoTipo") == "proximos_12_meses"), None)
+    anual = [r for r in ipc if r.get("periodoTipo") == "anual"]
+
+    def serie(nombre):
+        rs = [r for r in rows if r.get("indicador") == nombre and r.get("periodoTipo") == "mensual"]
+        rs.sort(key=lambda r: r.get("periodoDesde") or "")
+        return [{"mes": (r.get("periodoDesde") or "")[:7], "mediana": num(r.get("mediana"))} for r in rs
+                if (r.get("periodoDesde") or "")[:7] >= hoy][:4]
+    return {"informe": rows[0].get("informe") if rows else None,
+            "ipc_mensual": [{"mes": (r.get("periodoDesde") or "")[:7], "mediana": num(r.get("mediana"))} for r in mens],
+            "ipc_12m": num(p12.get("mediana")) if p12 else None,
+            "ipc_anual": [{"anio": r.get("periodo"), "mediana": num(r.get("mediana"))} for r in anual],
+            "tipo_cambio": serie("Tipo de cambio nominal"), "tamar": serie("Tasa de interés (TAMAR)")}, \
+        "REM del BCRA vía argentinadatos.com"
 
 
 # ---------- Calendario y earnings ----------
@@ -338,6 +406,8 @@ if __name__ == "__main__":
         "ar_bcra": ar_bcra,
         "ipc": ipc,
         "riesgo_pais": riesgo_pais,
+        "emae": emae,
+        "rem": rem,
         "bandas": bandas,
         "dolares_hist": dolares_hist,
         "ar_backfill": ar_backfill,

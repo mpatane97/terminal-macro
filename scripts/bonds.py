@@ -10,27 +10,44 @@ def _d(s):
     return date(y, m, d)
 
 
+def _eom(y, m):
+    nxt = date(y + (m == 12), m % 12 + 1, 1)
+    return nxt - timedelta(days=1)
+
+
 def build_flows(fam):
-    """Devuelve lista de (fecha, cupón, amortización) por 100 VN original."""
+    """Devuelve lista de (fecha, cupón, amortización) por 100 VN original.
+    fam: pago_mes_dia (lista 'MM-DD') o fin_de_mes=True (pago mensual); frecuencia = pagos por año."""
     am = fam["amortizacion"]
     first = _d(am["primera"])
     cuotas = am["cuotas_pct"]
     if not isinstance(cuotas, list):
         cuotas = [cuotas] * am["n"]
-    md = [tuple(map(int, x.split("-"))) for x in fam["pago_mes_dia"]]
-
-    # fechas de pago semestrales desde el primer cupón hasta la última amortización
     start = _d(fam["cupones"][0][0])
+    freq = fam.get("frecuencia", 12 if fam.get("fin_de_mes") else 2)
+
     dates = []
-    y = start.year
-    while True:
-        for m, d in md:
-            dt = date(y, m, d)
+    if fam.get("fin_de_mes"):
+        y, m = start.year, start.month
+        while True:
+            dt = _eom(y, m)
             if dt > start:
                 dates.append(dt)
-        y += 1
-        if dates and len([x for x in dates if x >= first]) >= len(cuotas):
-            break
+            if dt >= first and len([x for x in dates if x >= first]) >= len(cuotas):
+                break
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    else:
+        md = [tuple(map(int, x.split("-"))) for x in fam["pago_mes_dia"]]
+        y = start.year
+        while True:
+            for m, d in md:
+                dt = date(y, m, d)
+                if dt > start:
+                    dates.append(dt)
+            y += 1
+            if dates and len([x for x in dates if x >= first]) >= len(cuotas):
+                break
+    dates.sort()
     amort_dates = [x for x in dates if x >= first][: len(cuotas)]
     last = amort_dates[-1]
     dates = [x for x in dates if x <= last]
@@ -46,7 +63,7 @@ def build_flows(fam):
     flows = []
     prev = start
     for dt in dates:
-        cup = residual * rate_at(prev) / 100 / 2  # cupón semestral sobre valor residual (30/360)
+        cup = residual * rate_at(prev) / 100 / freq  # cupón sobre valor residual (30/360)
         amort = 0.0
         if dt in amort_dates:
             amort = cuotas[amort_dates.index(dt)]
@@ -97,12 +114,21 @@ def bond_metrics(flows, price, settle):
     if prev_pay and next_flow:
         corrido = next_flow[1] * (settle - prev_pay).days / (next_flow[0] - prev_pay).days
     vt = residual + corrido
+    tem_ = (1 + tir) ** (1 / 12) - 1
     return {
         "tir": tir * 100,
-        "dur_mod": mac / (1 + tir),
+        "tem": tem_ * 100,
+        "tna": tem_ * 12 * 100,
+        # duration modificada con capitalización semestral (convención de mercado, igual que bonistas)
+        "dur_mod": mac / (1 + tir) ** 0.5,
         "paridad": price / vt * 100 if vt else None,
+        "vt": vt,
         "residual": residual,
         "proximo_pago": fut[0][0].isoformat(),
+        "dias_prox": (fut[0][0] - settle).days,
+        "monto_prox": fut[0][1],
+        "dias_vto": (fut[-1][0] - settle).days,
+        "vto": fut[-1][0].isoformat(),
     }
 
 
