@@ -3,6 +3,7 @@ bandas, calendario y earnings. Escribe docs/data/daily.json."""
 import io
 import os
 import re
+import time
 from datetime import date, datetime, timedelta
 
 import openpyxl
@@ -431,18 +432,19 @@ def earnings():
     if not FINNHUB_KEY:
         raise RuntimeError("falta FINNHUB_API_KEY")
     d = today_ar()
-    # Finnhub recorta respuestas largas: se pide en tramos de 15 días
+    mega = [it["id"] for g in ("megacaps_eeuu", "megacaps_global") for it in CFG["mercados"].get(g, [])]
+    universe = set(CFG["earnings_top20"]) | set(CFG.get("watchlist", [])) | set(mega)
+    # Finnhub recorta los pedidos por rango: se consulta empresa por empresa (límite 60/min)
     filas = []
-    for k in range(6):
-        desde, hasta = d + timedelta(days=15 * k), d + timedelta(days=15 * k + 14)
+    for sym in sorted(universe):
         try:
             filas += http_get("https://finnhub.io/api/v1/calendar/earnings",
-                              params={"from": desde.isoformat(), "to": hasta.isoformat(), "token": FINNHUB_KEY}).get("earningsCalendar", [])
+                              params={"symbol": sym, "from": d.isoformat(), "to": (d + timedelta(days=90)).isoformat(),
+                                      "token": FINNHUB_KEY}).get("earningsCalendar", [])
         except Exception as e:  # noqa: BLE001
-            log.warning("earnings %s: %s", desde, e)
+            log.warning("earnings %s: %s", sym, e)
+        time.sleep(1.1)
     js = {"earningsCalendar": filas}
-    mega = [it["id"].replace("BRK.B", "BRK.B") for g in ("megacaps_eeuu", "megacaps_global") for it in CFG["mercados"].get(g, [])]
-    universe = set(CFG["earnings_top20"]) | set(CFG.get("watchlist", [])) | set(mega)
     out = [{"fecha": r["date"], "ticker": r["symbol"], "hora": {"bmo": "antes de apertura", "amc": "después del cierre"}.get(r.get("hour"), r.get("hour")),
             "eps_estimado": r.get("epsEstimate")}
            for r in js.get("earningsCalendar", []) if r.get("symbol") in universe]
