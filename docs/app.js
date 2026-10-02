@@ -168,8 +168,8 @@
     const tasasHtml = table(["", "TNA", "Fecha"], tasas.map(([n, v]) => [n, v ? fmt(v.valor, 2) + "%" : "—", dmy(v?.fecha)]))
       + `<dl class="kv"><dt>CER ${bc.cer ? `(${dmy(bc.cer.fecha)})` : ""}</dt><dd>${fmt(bc.cer?.valor, 4)}</dd><dt>UVA ${bc.uva ? `(${dmy(bc.uva.fecha)})` : ""}</dt><dd>${fmt(bc.uva?.valor, 2)}</dd></dl>`;
 
-    const accHtml = table(["", "Precio", "Día", "Sem", "Mes", "Año"], [["Merval", ...(() => { const m = ((blk(P, "markets") || {}).argentina || [])[0] || {}; return [fmt(m.last, 0), chg(m.d), chg(m.w), chg(m.m), chg(m.y)]; })()]]
-      .concat((arm.acciones || []).map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y)])))
+    const accHtml = table(["", "Precio", "Día", "Sem", "Mes"], [["Merval", ...(() => { const m = ((blk(P, "markets") || {}).argentina || [])[0] || {}; return [fmt(m.last, 0), chg(m.d), chg(m.w), chg(m.m)]; })()]]
+      .concat((arm.acciones || []).map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m)])))
       + `<h3>CEDEARs</h3>` + table(["", "Precio", "Día", "Mes", "MEP impl.", "CCL impl."], (arm.cedears || []).map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d), chg(r.m), fmt(r.mep, 2), fmt(r.ccl, 2)]));
 
     const macroHtml = `<dl class="kv"><dt>Riesgo país (${dmy(rp.date)})</dt><dd>${fmt(rp.last, 0)} pb ${chg(rp.d_pb, 0, " pb")}</dd>
