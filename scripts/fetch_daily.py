@@ -431,8 +431,16 @@ def earnings():
     if not FINNHUB_KEY:
         raise RuntimeError("falta FINNHUB_API_KEY")
     d = today_ar()
-    js = http_get("https://finnhub.io/api/v1/calendar/earnings",
-                  params={"from": d.isoformat(), "to": (d + timedelta(days=90)).isoformat(), "token": FINNHUB_KEY})
+    # Finnhub recorta respuestas largas: se pide en tramos de 15 días
+    filas = []
+    for k in range(6):
+        desde, hasta = d + timedelta(days=15 * k), d + timedelta(days=15 * k + 14)
+        try:
+            filas += http_get("https://finnhub.io/api/v1/calendar/earnings",
+                              params={"from": desde.isoformat(), "to": hasta.isoformat(), "token": FINNHUB_KEY}).get("earningsCalendar", [])
+        except Exception as e:  # noqa: BLE001
+            log.warning("earnings %s: %s", desde, e)
+    js = {"earningsCalendar": filas}
     mega = [it["id"].replace("BRK.B", "BRK.B") for g in ("megacaps_eeuu", "megacaps_global") for it in CFG["mercados"].get(g, [])]
     universe = set(CFG["earnings_top20"]) | set(CFG.get("watchlist", [])) | set(mega)
     out = [{"fecha": r["date"], "ticker": r["symbol"], "hora": {"bmo": "antes de apertura", "amc": "después del cierre"}.get(r.get("hour"), r.get("hour")),
