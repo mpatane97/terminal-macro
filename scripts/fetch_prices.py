@@ -42,6 +42,8 @@ def markets():
                 continue
             series = [(d.strftime("%Y-%m-%d"), float(v)) for d, v in s.items()]
             ch = changes_from_series(series)
+            ultimos = [v for _, v in series[-252:]]
+            ch["dd52"] = (ch["last"] / max(ultimos) - 1) * 100 if ultimos else None
             rows.append({**_meta(it), **ch})
         out[gname] = rows
     if len(missing) > len(tickers) / 2:
@@ -52,7 +54,7 @@ def markets():
 
 
 def _meta(it):
-    return {k: it[k] for k in ("id", "nombre", "unidad") if k in it}
+    return {k: it[k] for k in ("id", "nombre", "unidad", "cedear") if k in it}
 
 
 # ---------- Dólares (dolarapi) ----------
@@ -167,6 +169,13 @@ def ar_market():
     ced = {r["symbol"]: r for r in _d912("/live/arg_cedears")}
     mep = {r.get("ticker"): r for r in _d912("/live/mep")}
     ccl = {r.get("ticker_ar") or r.get("ticker"): r for r in _d912("/live/ccl")}
+    mega = {}
+    for g in ("megacaps_eeuu", "megacaps_global"):
+        for it in CFG["mercados"].get(g, []):
+            t = it.get("cedear")
+            if t and t in ced:
+                mega[t] = {"precio": num(ced[t].get("c")), "d": num(ced[t].get("pct_change")),
+                           "ccl": num((ccl.get(t) or {}).get("CCL_close") or (ccl.get(t) or {}).get("CCL_mark"))}
     cedears = []
     for t in a["cedears"]:
         c = ced.get(t, {})
@@ -186,7 +195,7 @@ def ar_market():
     write_json(HIST / "ar_closes.json", _trim(hist))
 
     return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar,
-            "acciones": acciones, "panel_lider": panel, "cedears": cedears, "liquidacion": settle.isoformat()}, \
+            "acciones": acciones, "panel_lider": panel, "cedears": cedears, "cedears_mega": mega, "liquidacion": settle.isoformat()}, \
         "data912.com (secundaria); TIR y TEM: cálculo propio"
 
 

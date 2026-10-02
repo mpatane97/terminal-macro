@@ -367,6 +367,49 @@ def rem():
         "REM del BCRA vía argentinadatos.com"
 
 
+def us_senales():
+    """Regla de Sahm: promedio móvil de 3 meses del desempleo menos su mínimo de los 12 meses previos."""
+    s_ = fred("UNRATE", (today_ar() - timedelta(days=800)).isoformat())
+    v = [x for _, x in s_]
+    m3 = [sum(v[i - 2:i + 1]) / 3 for i in range(2, len(v))]
+    sahm = m3[-1] - min(m3[-13:-1]) if len(m3) >= 13 else None
+    return {"sahm": sahm, "desempleo_min12": min(v[-13:-1]) if len(v) >= 13 else None}, "FRED (BLS); cálculo propio"
+
+
+def megacaps_info():
+    """Capitalización de mercado (USD) de las empresas grandes, una vez por día."""
+    import yfinance as yf
+    tasas = {"SAR": 1 / 3.75}
+    out = {}
+    for g in ("megacaps_eeuu", "megacaps_global"):
+        for it in CFG["mercados"].get(g, []):
+            try:
+                fi = yf.Ticker(it["yahoo"]).fast_info
+                cap = getattr(fi, "market_cap", None)
+                cur = (getattr(fi, "currency", None) or "USD").upper()
+                if cap:
+                    out[it["id"]] = cap * tasas.get(cur, 1.0) / 1e9 if cur in tasas or cur == "USD" else None
+            except Exception as e:  # noqa: BLE001
+                log.warning("market cap %s: %s", it["id"], e)
+    if not out:
+        raise RuntimeError("sin capitalizaciones")
+    return out, "Yahoo Finance (yfinance), miles de millones de USD"
+
+
+def calendar_intl():
+    rows = http_get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
+    nombres = {"EUR": "Eurozona", "GBP": "Reino Unido", "JPY": "Japón", "CNY": "China"}
+    datos = [{"fecha": r.get("date"), "pais": nombres[r["country"]], "evento": r.get("title"),
+              "esperado": r.get("forecast") or None, "previo": r.get("previous") or None}
+             for r in rows if r.get("country") in nombres and r.get("impact") == "High"
+             and not re.search(r"speaks|speech|testifies|remarks", r.get("title", ""), re.I)]
+    hoy = today_ar().isoformat()
+    bancos = [{"fecha": f, "hora": v.get("hora"), "banco": k}
+              for k, v in CFG.get("bancos_centrales", {}).items() if not k.startswith("_") for f in v["fechas"] if f >= hoy]
+    bancos.sort(key=lambda r: r["fecha"])
+    return {"datos_semana": datos, "bancos": bancos}, "Forex Factory (datos) y bancos centrales (fechas oficiales)"
+
+
 # ---------- Calendario y earnings ----------
 
 def calendar_us():
@@ -389,8 +432,9 @@ def earnings():
         raise RuntimeError("falta FINNHUB_API_KEY")
     d = today_ar()
     js = http_get("https://finnhub.io/api/v1/calendar/earnings",
-                  params={"from": d.isoformat(), "to": (d + timedelta(days=14)).isoformat(), "token": FINNHUB_KEY})
-    universe = set(CFG["earnings_top20"]) | set(CFG.get("watchlist", []))
+                  params={"from": d.isoformat(), "to": (d + timedelta(days=90)).isoformat(), "token": FINNHUB_KEY})
+    mega = [it["id"].replace("BRK.B", "BRK.B") for g in ("megacaps_eeuu", "megacaps_global") for it in CFG["mercados"].get(g, [])]
+    universe = set(CFG["earnings_top20"]) | set(CFG.get("watchlist", [])) | set(mega)
     out = [{"fecha": r["date"], "ticker": r["symbol"], "hora": {"bmo": "antes de apertura", "amc": "después del cierre"}.get(r.get("hour"), r.get("hour")),
             "eps_estimado": r.get("epsEstimate")}
            for r in js.get("earningsCalendar", []) if r.get("symbol") in universe]
@@ -413,6 +457,9 @@ if __name__ == "__main__":
         "ar_backfill": ar_backfill,
         "calendar_us": calendar_us,
         "calendar_ar": calendar_ar,
+        "calendar_intl": calendar_intl,
+        "us_senales": us_senales,
+        "megacaps_info": megacaps_info,
         "earnings": earnings,
     })
     log.info("daily.json actualizado %s", now_iso())
