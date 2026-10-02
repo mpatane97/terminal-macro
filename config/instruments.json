@@ -56,7 +56,9 @@
     "bopreal": ["BPOA7", "BPOB7", "BPOC7", "BPOD7", "BPOA8", "BPOB8"],
     "acciones": ["GGAL", "YPFD", "PAMP"],
     "cedears": ["SPY", "GOOGL", "NU", "NVDA", "MELI", "KO"],
-    "bonos_mep_ccl": "AL30"
+    "bonos_mep_ccl": "AL30",
+    "cer": ["TZXO6", "TZXD6", "TZXM7", "TZX27", "TZXS7", "TZXD7", "TZX28", "TX26", "TX28", "TX31"],
+    "tamar": ["TMF27", "TML27"]
   },
 
   "earnings_top20": ["NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "BRK.B", "JPM",
@@ -68,9 +70,17 @@
                      "2027-06-09", "2027-07-28", "2027-09-15", "2027-10-27", "2027-12-08"],
 
   "noticias": {
+    "_nota": "Solo se muestran titulares que contengan alguna palabra clave (sin distinguir mayúsculas ni acentos). Un feed con \"filtrar\": false se muestra completo.",
+    "claves_eeuu": ["fed", "fomc", "powell", "rate", "yield", "treasur", "bond", "inflation", "cpi", "pce", "jobs", "payroll",
+                     "jobless", "unemployment", "gdp", "recession", "economy", "economic", "stock", "s&p", "nasdaq", "dow", "dollar",
+                     "oil", "crude", "gold", "earnings", "tariff", "futures", "market", "pmi", "wall street"],
+    "claves_argentina": ["dolar", "bcra", "banco central", "inflacion", "ipc", "indec", "tasa", "bono", "riesgo pais", "reservas",
+                          "merval", "accion", "licitacion", "tesoro", "fmi", "caputo", "deficit", "superavit", "mercado", "cepo",
+                          "banda", "deuda", "lecap", "plazo fijo", "exportacion", "importacion", "actividad", "recaudacion", "wall street", "fed"],
     "eeuu": [
-      {"fuente": "Fed",         "url": "https://www.federalreserve.gov/feeds/press_all.xml"},
-      {"fuente": "MarketWatch", "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories"}
+      {"fuente": "Fed",         "url": "https://www.federalreserve.gov/feeds/press_monetary.xml", "filtrar": false},
+      {"fuente": "WSJ Markets", "url": "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain"},
+      {"fuente": "MarketWatch", "url": "https://feeds.content.dowjones.io/public/rss/mw_bulletins"}
     ],
     "argentina": [
       {"fuente": "Ámbito",          "url": "https://www.ambito.com/rss/pages/economia.xml"},

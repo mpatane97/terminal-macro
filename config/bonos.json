@@ -1,34 +1,433 @@
 {
   "_nota": "Condiciones de emisión usadas para calcular TIR y duration. Valores por 100 de valor nominal original. VERIFICAR contra prospecto antes de confiar en la TIR: fueron cargados de memoria y deben validarse contra Rava o el prospecto.",
   "_formato": "cupones: lista de [fecha_desde, tasa_anual_%]; amortizacion: fecha de la primera cuota, cantidad de cuotas y % de cada una (si 'cuotas_pct' es lista, se usa tal cual).",
-
   "familias": {
-    "2029": {"tickers": ["AL29", "GD29"], "pago_mes_dia": ["01-09", "07-09"],
-             "amortizacion": {"primera": "2025-01-09", "cuotas_pct": 10.0, "n": 10},
-             "cupones": [["2020-09-04", 1.0]]},
-    "2030": {"tickers": ["AL30", "GD30"], "pago_mes_dia": ["01-09", "07-09"],
-             "amortizacion": {"primera": "2024-07-09", "cuotas_pct": [4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]},
-             "cupones": [["2020-09-04", 0.125], ["2021-07-09", 0.5], ["2023-07-09", 0.75], ["2027-07-09", 1.75]]},
-    "2035": {"tickers": ["AL35", "GD35"], "pago_mes_dia": ["01-09", "07-09"],
-             "amortizacion": {"primera": "2031-01-09", "cuotas_pct": 10.0, "n": 10},
-             "cupones": [["2020-09-04", 0.125], ["2021-07-09", 1.125], ["2022-07-09", 1.5], ["2023-07-09", 3.625],
-                         ["2024-07-09", 4.125], ["2027-07-09", 4.75], ["2028-07-09", 5.0]]},
-    "2038": {"tickers": ["AE38", "GD38"], "pago_mes_dia": ["01-09", "07-09"],
-             "amortizacion": {"primera": "2027-07-09", "cuotas_pct": 4.545454545, "n": 22},
-             "cupones": [["2020-09-04", 0.125], ["2021-07-09", 2.0], ["2022-07-09", 3.875], ["2023-07-09", 4.25],
-                         ["2024-07-09", 5.0]]},
-    "2041": {"tickers": ["AL41", "GD41"], "pago_mes_dia": ["01-09", "07-09"],
-             "amortizacion": {"primera": "2028-01-09", "cuotas_pct": 3.571428571, "n": 28},
-             "cupones": [["2020-09-04", 0.125], ["2021-07-09", 2.5], ["2022-07-09", 3.5], ["2029-07-09", 4.875]]},
-    "2046": {"tickers": ["GD46"], "pago_mes_dia": ["01-09", "07-09"],
-             "amortizacion": {"primera": "2025-01-09", "cuotas_pct": 2.272727273, "n": 44},
-             "cupones": [["2020-09-04", 0.125], ["2021-07-09", 1.125], ["2022-07-09", 1.5], ["2023-07-09", 3.625],
-                         ["2024-07-09", 4.125], ["2027-07-09", 4.375], ["2028-07-09", 5.0]]},
-    "BOPREAL_S1": {"tickers": ["BPOA7", "BPOB7", "BPOC7", "BPOD7"], "pago_mes_dia": ["04-30", "10-31"],
-             "amortizacion": {"primera": "2027-10-31", "cuotas_pct": 100.0, "n": 1},
-             "cupones": [["2024-01-31", 5.0]]}
+    "2029": {
+      "tickers": [
+        "AL29",
+        "GD29"
+      ],
+      "pago_mes_dia": [
+        "01-09",
+        "07-09"
+      ],
+      "amortizacion": {
+        "primera": "2025-01-09",
+        "cuotas_pct": 10.0,
+        "n": 10
+      },
+      "cupones": [
+        [
+          "2020-09-04",
+          1.0
+        ]
+      ]
+    },
+    "2030": {
+      "tickers": [
+        "AL30",
+        "GD30"
+      ],
+      "pago_mes_dia": [
+        "01-09",
+        "07-09"
+      ],
+      "amortizacion": {
+        "primera": "2024-07-09",
+        "cuotas_pct": [
+          4,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8,
+          8
+        ]
+      },
+      "cupones": [
+        [
+          "2020-09-04",
+          0.125
+        ],
+        [
+          "2021-07-09",
+          0.5
+        ],
+        [
+          "2023-07-09",
+          0.75
+        ],
+        [
+          "2027-07-09",
+          1.75
+        ]
+      ]
+    },
+    "2035": {
+      "tickers": [
+        "AL35",
+        "GD35"
+      ],
+      "pago_mes_dia": [
+        "01-09",
+        "07-09"
+      ],
+      "amortizacion": {
+        "primera": "2031-01-09",
+        "cuotas_pct": 10.0,
+        "n": 10
+      },
+      "cupones": [
+        [
+          "2020-09-04",
+          0.125
+        ],
+        [
+          "2021-07-09",
+          1.125
+        ],
+        [
+          "2022-07-09",
+          1.5
+        ],
+        [
+          "2023-07-09",
+          3.625
+        ],
+        [
+          "2024-07-09",
+          4.125
+        ],
+        [
+          "2027-07-09",
+          4.75
+        ],
+        [
+          "2028-07-09",
+          5.0
+        ]
+      ]
+    },
+    "2038": {
+      "tickers": [
+        "AE38",
+        "GD38"
+      ],
+      "pago_mes_dia": [
+        "01-09",
+        "07-09"
+      ],
+      "amortizacion": {
+        "primera": "2027-07-09",
+        "cuotas_pct": 4.545454545,
+        "n": 22
+      },
+      "cupones": [
+        [
+          "2020-09-04",
+          0.125
+        ],
+        [
+          "2021-07-09",
+          2.0
+        ],
+        [
+          "2022-07-09",
+          3.875
+        ],
+        [
+          "2023-07-09",
+          4.25
+        ],
+        [
+          "2024-07-09",
+          5.0
+        ]
+      ]
+    },
+    "2041": {
+      "tickers": [
+        "AL41",
+        "GD41"
+      ],
+      "pago_mes_dia": [
+        "01-09",
+        "07-09"
+      ],
+      "amortizacion": {
+        "primera": "2028-01-09",
+        "cuotas_pct": 3.571428571,
+        "n": 28
+      },
+      "cupones": [
+        [
+          "2020-09-04",
+          0.125
+        ],
+        [
+          "2021-07-09",
+          2.5
+        ],
+        [
+          "2022-07-09",
+          3.5
+        ],
+        [
+          "2029-07-09",
+          4.875
+        ]
+      ]
+    },
+    "2046": {
+      "tickers": [
+        "GD46"
+      ],
+      "pago_mes_dia": [
+        "01-09",
+        "07-09"
+      ],
+      "amortizacion": {
+        "primera": "2025-01-09",
+        "cuotas_pct": 2.272727273,
+        "n": 44
+      },
+      "cupones": [
+        [
+          "2020-09-04",
+          0.125
+        ],
+        [
+          "2021-07-09",
+          1.125
+        ],
+        [
+          "2022-07-09",
+          1.5
+        ],
+        [
+          "2023-07-09",
+          3.625
+        ],
+        [
+          "2024-07-09",
+          4.125
+        ],
+        [
+          "2027-07-09",
+          4.375
+        ],
+        [
+          "2028-07-09",
+          5.0
+        ]
+      ]
+    },
+    "BOPREAL_S1": {
+      "tickers": [
+        "BPOA7",
+        "BPOB7",
+        "BPOC7",
+        "BPOD7"
+      ],
+      "pago_mes_dia": [
+        "04-30",
+        "10-31"
+      ],
+      "amortizacion": {
+        "primera": "2027-10-31",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2024-01-31",
+          5.0
+        ]
+      ]
+    }
   },
-
   "_pesos_nota": "LECAPs y BONCAPs: el vencimiento sale del ticker (S30N6 = 30/11/2026). El pago final por 100 VN hay que cargarlo acá (sale del aviso de licitación). Sin pago final no se calcula TEM.",
-  "pago_final_pesos": {}
+  "pago_final_pesos": {},
+  "_cer_nota": "Bonos CER: precio por 100 VN original. Capital ajustado por CER(t-10 hábiles)/CER inicial. CER inicial = CER 10 días hábiles antes de la emisión (calculado con la API del BCRA y validado contra rava.com).",
+  "cer": {
+    "TZXO6": {
+      "cer_inicial": 480.15257831965,
+      "pago_mes_dia": [
+        "10-30"
+      ],
+      "amortizacion": {
+        "primera": "2026-10-30",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2024-10-31",
+          0.0
+        ]
+      ]
+    },
+    "TZXD6": {
+      "cer_inicial": 271.04755550913,
+      "pago_mes_dia": [
+        "12-15"
+      ],
+      "amortizacion": {
+        "primera": "2026-12-15",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2024-03-15",
+          0.0
+        ]
+      ]
+    },
+    "TZXM7": {
+      "cer_inicial": 361.31760345721,
+      "pago_mes_dia": [
+        "03-31"
+      ],
+      "amortizacion": {
+        "primera": "2027-03-31",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2024-05-20",
+          0.0
+        ]
+      ]
+    },
+    "TZX27": {
+      "cer_inicial": 200.38801458912,
+      "pago_mes_dia": [
+        "06-30"
+      ],
+      "amortizacion": {
+        "primera": "2027-06-30",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2024-02-01",
+          0.0
+        ]
+      ]
+    },
+    "TZXS7": {
+      "cer_inicial": 723.05998062192,
+      "pago_mes_dia": [
+        "09-30"
+      ],
+      "amortizacion": {
+        "primera": "2027-09-30",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2026-03-31",
+          0.0
+        ]
+      ]
+    },
+    "TZXD7": {
+      "cer_inicial": 271.04755550913,
+      "pago_mes_dia": [
+        "12-15"
+      ],
+      "amortizacion": {
+        "primera": "2027-12-15",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2024-03-15",
+          0.0
+        ]
+      ]
+    },
+    "TZX28": {
+      "cer_inicial": 200.38801458912,
+      "pago_mes_dia": [
+        "06-30"
+      ],
+      "amortizacion": {
+        "primera": "2028-06-30",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2024-02-01",
+          0.0
+        ]
+      ]
+    },
+    "TX26": {
+      "cer_inicial": 22.54395108959,
+      "pago_mes_dia": [
+        "05-09",
+        "11-09"
+      ],
+      "amortizacion": {
+        "primera": "2024-11-09",
+        "cuotas_pct": 20.0,
+        "n": 5
+      },
+      "cupones": [
+        [
+          "2020-11-09",
+          2.0
+        ]
+      ]
+    },
+    "TX28": {
+      "cer_inicial": 22.54395108959,
+      "pago_mes_dia": [
+        "05-09",
+        "11-09"
+      ],
+      "amortizacion": {
+        "primera": "2024-05-09",
+        "cuotas_pct": 10.0,
+        "n": 10
+      },
+      "cupones": [
+        [
+          "2020-11-09",
+          2.25
+        ]
+      ]
+    },
+    "TX31": {
+      "cer_inicial": 46.9130015738,
+      "pago_mes_dia": [
+        "05-30",
+        "11-30"
+      ],
+      "amortizacion": {
+        "primera": "2027-05-30",
+        "cuotas_pct": 10.0,
+        "n": 10
+      },
+      "cupones": [
+        [
+          "2022-05-30",
+          2.5
+        ]
+      ]
+    }
+  }
 }
