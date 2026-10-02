@@ -73,7 +73,8 @@ def us_macro():
     out.append({"id": "UNRATE", "tema": "Empleo", "nombre": "Desempleo", "periodo": s[-1][0][:7],
                 "valor": s[-1][1], "anterior": s[-2][1], "unidad": "%", "proximo": fred_next_release("UNRATE")})
     s = fred("A191RL1Q225SBEA", start)
-    out.append({"id": "GDP", "tema": "Actividad", "nombre": "PBI (t/t anualizado)", "periodo": s[-1][0][:7],
+    trim = f"{s[-1][0][:4]} T{(int(s[-1][0][5:7]) - 1) // 3 + 1}"
+    out.append({"id": "GDP", "tema": "Actividad", "nombre": "PBI (t/t anualizado)", "periodo": trim,
                 "valor": s[-1][1], "anterior": s[-2][1], "unidad": "%", "proximo": fred_next_release("A191RL1Q225SBEA")})
     out.append(_ism())
     return out, "FRED (datos BLS, BEA); ISM: comunicado de prensa"

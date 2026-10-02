@@ -98,6 +98,12 @@ def _chg(hist, ticker, last):
     return {k: ch[k] for k in ("w", "m", "y")} if ch else {}
 
 
+def _usd_ticker(t):
+    """Especie en dólares MEP. Los BOPREAL usan otra raíz: BPOA7 -> BPA7D."""
+    m = re.fullmatch(r"BPO([A-D]\d)", t)
+    return f"BP{m.group(1)}D" if m else t + "D"
+
+
 def ar_market():
     a = CFG["argentina"]
     bonds_rows = _d912("/live/arg_bonds")
@@ -112,7 +118,7 @@ def ar_market():
             flows_by_ticker[t] = fl
 
     def usd_row(t):
-        ars, usd = px.get(t), px.get(t + "D")
+        ars, usd = px.get(t), px.get(_usd_ticker(t))
         p_usd = num(usd.get("c")) if usd else None
         row = {"ticker": t, "ars": num(ars.get("c")) if ars else None, "usd": p_usd,
                "d": num(usd.get("pct_change")) if usd else None, **_chg(hist, t + "D", p_usd)}
@@ -144,7 +150,8 @@ def ar_market():
 
     cer_tamar = []
     for sym, r in px.items():
-        if re.fullmatch(r"(TX|TZX|TZXD|TZXM|DICP|PARP|CUAP)\w*|TM[FL]\d+|TTD\d+", sym):
+        es_usd = sym[-1] in "DC" and sym[:-1] in px
+        if not es_usd and re.fullmatch(r"(TX|TZX|DICP|PARP|CUAP)\w*|TM[FL]\d+|TTD\d+", sym):
             cer_tamar.append({"ticker": sym, "precio": num(r.get("c")), "d": num(r.get("pct_change"))})
     cer_tamar.sort(key=lambda r: r["ticker"])
 
@@ -154,7 +161,7 @@ def ar_market():
 
     ced = {r["symbol"]: r for r in _d912("/live/arg_cedears")}
     mep = {r.get("ticker"): r for r in _d912("/live/mep")}
-    ccl = {r.get("ticker"): r for r in _d912("/live/ccl")}
+    ccl = {r.get("ticker_ar") or r.get("ticker"): r for r in _d912("/live/ccl")}
     cedears = []
     for t in a["cedears"]:
         c = ced.get(t, {})
@@ -167,7 +174,7 @@ def ar_market():
     today = today_ar().isoformat()
     for r in soberanos + bopreal:
         if r.get("usd"):
-            hist.setdefault(r["ticker"] + "D", {})[today] = r["usd"]
+            hist.setdefault(_usd_ticker(r["ticker"]), {})[today] = r["usd"]
     for r in acciones + cedears:
         if r.get("precio"):
             hist.setdefault(r["ticker"], {})[today] = r["precio"]
@@ -188,14 +195,16 @@ def _trim(hist, keep=400):
 # ---------- Probabilidades FOMC (Kalshi) ----------
 
 def _kalshi_price(m):
-    for k in ("last_price_dollars", "yes_bid_dollars"):
-        if m.get(k) not in (None, ""):
-            return num(m[k])
-    for k in ("last_price", "yes_bid"):
-        if m.get(k) not in (None, ""):
-            v = num(m[k])
-            return v / 100 if v is not None else None
-    return None
+    """Probabilidad implícita: punto medio entre compra y venta; si no hay puntas, último precio."""
+    bid, ask = num(m.get("yes_bid_dollars")), num(m.get("yes_ask_dollars"))
+    if bid is None and m.get("yes_bid") is not None:
+        bid, ask = num(m.get("yes_bid")) / 100, num(m.get("yes_ask")) / 100 if m.get("yes_ask") is not None else None
+    if bid is not None and ask is not None and ask > 0:
+        return (bid + ask) / 2
+    last = num(m.get("last_price_dollars"))
+    if last is None and m.get("last_price") is not None:
+        last = num(m["last_price"]) / 100
+    return last
 
 
 def fed_probs():
@@ -211,8 +220,14 @@ def fed_probs():
             if strike is not None and p is not None and m.get("strike_type", "greater") in ("greater", "greater_or_equal"):
                 pts.append((strike, p))
         pts.sort()
-        if not pts:
+        if not pts or (ev.get("strike_date") or "") < now_iso()[:10]:
             continue
+        # P(techo > s) no puede subir con s: se fuerza una curva no creciente
+        mono, run = [], 1.0
+        for s_, p in pts:
+            run = min(run, p)
+            mono.append((s_, run))
+        pts = mono
         # P(tasa > s) para cada umbral -> distribución por tramos
         dist = []
         for i, (s, p) in enumerate(pts):
