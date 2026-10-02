@@ -2,6 +2,7 @@
 probabilidades de la Fed y noticias. Escribe docs/data/prices.json."""
 import calendar
 import re
+import unicodedata
 from datetime import datetime, timezone
 
 import feedparser
@@ -68,7 +69,8 @@ def dolares():
         if not r:
             continue
         last = num(r.get("venta"))
-        serie = {**hist.get(casa, {}), today_ar().isoformat(): last}
+        hoy = today_ar().isoformat()
+        serie = {**{d: v for d, v in hist.get(casa, {}).items() if d < hoy}, hoy: last}
         ch = changes_from_series(sorted(serie.items())) if last else None
         out.append({"id": casa, "nombre": nombre, "compra": num(r.get("compra")), "venta": last,
                     "hora": r.get("fechaActualizacion"), **({k: ch[k] for k in ("d", "w", "m", "y")} if ch else {})})
@@ -93,7 +95,8 @@ def _ar_hist():
 
 
 def _chg(hist, ticker, last):
-    serie = {**hist.get(ticker, {}), today_ar().isoformat(): last}
+    hoy = today_ar().isoformat()
+    serie = {**{d: v for d, v in hist.get(ticker, {}).items() if d < hoy}, hoy: last}
     ch = changes_from_series(sorted(serie.items())) if last else None
     return {k: ch[k] for k in ("w", "m", "y")} if ch else {}
 
@@ -148,12 +151,7 @@ def ar_market():
         pesos.append(row)
     pesos.sort(key=lambda r: r["vto"])
 
-    cer_tamar = []
-    for sym, r in px.items():
-        es_usd = sym[-1] in "DC" and sym[:-1] in px
-        if not es_usd and re.fullmatch(r"(TX|TZX|DICP|PARP|CUAP)\w*|TM[FL]\d+|TTD\d+", sym):
-            cer_tamar.append({"ticker": sym, "precio": num(r.get("c")), "d": num(r.get("pct_change"))})
-    cer_tamar.sort(key=lambda r: r["ticker"])
+    cer_tamar = _cer_tamar(px, settle, a)
 
     stocks = {r["symbol"]: r for r in _d912("/live/arg_stocks")}
     acciones = [{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
@@ -183,6 +181,31 @@ def ar_market():
     return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar,
             "acciones": acciones, "cedears": cedears, "liquidacion": settle.isoformat()}, \
         "data912.com (secundaria); TIR y TEM: cálculo propio"
+
+
+def _cer_tamar(px, settle, a):
+    """Lista curada de bonos CER (con TIR real) y TAMAR (solo precio)."""
+    daily = read_json(DATA / "daily.json", {}) or {}
+    cer_t10 = (((daily.get("ar_bcra") or {}).get("data") or {}).get("cer_t10") or {}).get("valor")
+    out = []
+    for t in a.get("cer", []):
+        r = px.get(t, {})
+        p = num(r.get("c"))
+        row = {"ticker": t, "tipo": "CER", "precio": p, "d": num(r.get("pct_change"))}
+        fam = BONOS.get("cer", {}).get(t)
+        if fam:
+            fl = bonds.build_flows(fam)
+            row["vto"] = fl[-1][0].isoformat()
+            if p and cer_t10:
+                coef = cer_t10 / fam["cer_inicial"]
+                m = bonds.bond_metrics(fl, p / coef, settle)
+                if m:
+                    row.update({"tir": m["tir"], "dur_mod": m["dur_mod"], "coef_cer": coef})
+        out.append(row)
+    for t in a.get("tamar", []):
+        r = px.get(t, {})
+        out.append({"ticker": t, "tipo": "TAMAR", "precio": num(r.get("c")), "d": num(r.get("pct_change"))})
+    return out
 
 
 def _trim(hist, keep=400):
@@ -245,25 +268,36 @@ def fed_probs():
 
 # ---------- Noticias (RSS) ----------
 
-def _news(feeds, n=15):
-    items = []
+def _norm(t):
+    t = unicodedata.normalize("NFKD", t.lower())
+    return "".join(ch for ch in t if not unicodedata.combining(ch))
+
+
+def _news(feeds, claves, n=15):
+    claves = [_norm(k) for k in claves]
+    items, seen = [], set()
     for f in feeds:
         try:
             d = feedparser.parse(f["url"], agent="Mozilla/5.0")
-            for e in d.entries[:20]:
+            for e in d.entries[:30]:
+                titulo = (e.get("title") or "").strip()
+                if not titulo or titulo in seen:
+                    continue
+                if f.get("filtrar", True) and not any(k in _norm(titulo) for k in claves):
+                    continue
+                seen.add(titulo)
                 t = e.get("published_parsed") or e.get("updated_parsed")
                 ts = datetime.fromtimestamp(calendar.timegm(t), tz=timezone.utc).astimezone(AR_TZ).isoformat() if t else None
-                items.append({"titulo": e.get("title", "").strip(), "url": e.get("link"), "fuente": f["fuente"], "hora": ts})
+                items.append({"titulo": titulo, "url": e.get("link"), "fuente": f["fuente"], "hora": ts})
         except Exception as ex:  # noqa: BLE001
             log.warning("RSS %s: %s", f["fuente"], ex)
-    items = [i for i in items if i["titulo"]]
     items.sort(key=lambda i: i["hora"] or "", reverse=True)
     return items[:n]
 
 
 def news():
     n = CFG["noticias"]
-    us, ar = _news(n["eeuu"]), _news(n["argentina"])
+    us, ar = _news(n["eeuu"], n.get("claves_eeuu", [])), _news(n["argentina"], n.get("claves_argentina", []))
     if not us and not ar:
         raise RuntimeError("ningún RSS respondió")
     return {"eeuu": us, "argentina": ar}, "RSS de cada medio"

@@ -80,16 +80,28 @@ def us_macro():
     return out, "FRED (datos BLS, BEA); ISM: comunicado de prensa"
 
 
+MESES_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+            "November", "December"]
+
+
+def _mes_es(mes, anio):
+    return f"{anio}-{MESES_EN.index(mes) + 1:02d}" if mes in MESES_EN else f"{mes} {anio}"
+
+
 def _ism():
     row = {"id": "ISM", "tema": "Actividad", "nombre": "ISM manufacturero", "unidad": "pts",
            "valor": None, "anterior": None, "periodo": None, "proximo": None}
     try:
         r = http_get("https://www.prnewswire.com/news/institute-for-supply-management/", as_json=False)
-        vals = re.findall(r"Manufacturing PMI®?\s*at\s*(\d{2}\.\d)%[;,]?\s*([A-Z][a-z]+)\s*(\d{4})", r.text)
-        if vals:
-            row["valor"], row["periodo"] = float(vals[0][0]), f"{vals[0][1]} {vals[0][2]}"
-            if len(vals) > 1:
-                row["anterior"] = float(vals[1][0])
+        vals = re.findall(r"Manufacturing PMI®?\s*at\s*(\d{2}(?:\.\d)?)%[;,]?\s*([A-Z][a-z]+)\s*(\d{4})", r.text)
+        unicos = []
+        for v in vals:  # el mismo titular aparece varias veces en la página
+            if v not in unicos:
+                unicos.append(v)
+        if unicos:
+            row["valor"], row["periodo"] = float(unicos[0][0]), _mes_es(unicos[0][1], unicos[0][2])
+            if len(unicos) > 1:
+                row["anterior"] = float(unicos[1][0])
     except Exception as e:  # noqa: BLE001
         log.warning("ISM: %s", e)
     return row
@@ -154,6 +166,15 @@ def _bcra_series(idv, days=400):
     return sorted((x["fecha"], num(x["valor"])) for x in det)
 
 
+def _habiles_atras(d, n):
+    """Retrocede n días hábiles (lun a vie; no contempla feriados)."""
+    while n > 0:
+        d -= timedelta(days=1)
+        if d.weekday() < 5:
+            n -= 1
+    return d
+
+
 def ar_bcra():
     lst = _bcra_list()
     by_id = {v["idVariable"]: v for v in lst}
@@ -182,6 +203,15 @@ def ar_bcra():
                 out[k].update({x: ch[x] for x in ("d", "w", "m", "y")})
             except Exception as e:  # noqa: BLE001
                 log.warning("serie BCRA %s: %s", k, e)
+    if out.get("cer"):
+        try:
+            s_cer = _bcra_series(out["cer"]["id"], days=40)
+            ref = _habiles_atras(today_ar() + timedelta(days=1), 10).isoformat()
+            cand = [(d, v) for d, v in s_cer if d <= ref and v is not None]
+            if cand:
+                out["cer_t10"] = {"fecha": cand[-1][0], "valor": cand[-1][1]}
+        except Exception as e:  # noqa: BLE001
+            log.warning("CER t-10: %s", e)
     if out.get("compras"):
         try:
             s = _bcra_series(78, days=60)
@@ -275,7 +305,8 @@ def calendar_us():
     rows = http_get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
     out = [{"fecha": r.get("date"), "evento": r.get("title"), "impacto": r.get("impact"),
             "esperado": r.get("forecast") or None, "previo": r.get("previous") or None}
-           for r in rows if r.get("country") == "USD" and r.get("impact") in ("High", "Medium")]
+           for r in rows if r.get("country") == "USD" and r.get("impact") in ("High", "Medium")
+           and not re.search(r"speaks|speech|testifies|remarks", r.get("title", ""), re.I)]
     return out, "Forex Factory (secundaria)"
 
 
