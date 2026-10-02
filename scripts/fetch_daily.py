@@ -382,7 +382,7 @@ def megacaps_info():
     import yfinance as yf
     tasas = {"SAR": 1 / 3.75}
     out = {}
-    for g in ("megacaps_eeuu", "megacaps_global"):
+    for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion"):
         for it in CFG["mercados"].get(g, []):
             try:
                 fi = yf.Ticker(it["yahoo"]).fast_info
@@ -432,7 +432,7 @@ def earnings():
     if not FINNHUB_KEY:
         raise RuntimeError("falta FINNHUB_API_KEY")
     d = today_ar()
-    mega = [it["id"] for g in ("megacaps_eeuu", "megacaps_global") for it in CFG["mercados"].get(g, [])]
+    mega = [it["id"] for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion") for it in CFG["mercados"].get(g, [])]
     universe = set(CFG["earnings_top20"]) | set(CFG.get("watchlist", [])) | set(mega)
     # Finnhub recorta los pedidos por rango: se consulta empresa por empresa (límite 60/min)
     filas = []

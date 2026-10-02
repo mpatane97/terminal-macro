@@ -170,7 +170,7 @@ def ar_market():
     mep = {r.get("ticker"): r for r in _d912("/live/mep")}
     ccl = {r.get("ticker_ar") or r.get("ticker"): r for r in _d912("/live/ccl")}
     mega = {}
-    for g in ("megacaps_eeuu", "megacaps_global"):
+    for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion"):
         for it in CFG["mercados"].get(g, []):
             t = it.get("cedear")
             if t and t in ced:
