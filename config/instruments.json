@@ -521,12 +521,6 @@
         "cedear": "GLOB"
       },
       {
-        "id": "DESP",
-        "nombre": "Despegar",
-        "yahoo": "DESP",
-        "cedear": "DESP"
-      },
-      {
         "id": "PBR",
         "nombre": "Petrobras",
         "yahoo": "PBR",
