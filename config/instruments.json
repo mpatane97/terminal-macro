@@ -48,13 +48,32 @@
     ],
     "argentina": [
       {"id": "MERVAL", "nombre": "Merval", "yahoo": "^MERV"}
+    ],
+    "bonos_etf": [
+      {"id": "TLT", "nombre": "TLT · Treasuries 20+ años", "yahoo": "TLT"},
+      {"id": "HYG", "nombre": "HYG · High yield EE.UU.",  "yahoo": "HYG"},
+      {"id": "EMB", "nombre": "EMB · Bonos emergentes USD", "yahoo": "EMB"}
+    ],
+    "adrs": [
+      {"id": "GGAL", "nombre": "Galicia",        "yahoo": "GGAL"},
+      {"id": "YPF",  "nombre": "YPF",            "yahoo": "YPF"},
+      {"id": "PAM",  "nombre": "Pampa Energía",  "yahoo": "PAM"},
+      {"id": "BMA",  "nombre": "Banco Macro",    "yahoo": "BMA"},
+      {"id": "BBAR", "nombre": "BBVA Argentina", "yahoo": "BBAR"},
+      {"id": "SUPV", "nombre": "Supervielle",    "yahoo": "SUPV"},
+      {"id": "TGS",  "nombre": "TGS",            "yahoo": "TGS"},
+      {"id": "CEPU", "nombre": "Central Puerto", "yahoo": "CEPU"},
+      {"id": "VIST", "nombre": "Vista Energy",   "yahoo": "VIST"},
+      {"id": "TEO",  "nombre": "Telecom",        "yahoo": "TEO"}
     ]
   },
 
   "argentina": {
-    "soberanos_usd": ["AL29", "GD29", "AL30", "GD30", "AL35", "GD35", "AE38", "GD38", "AL41", "GD41", "GD46"],
+    "soberanos_usd": ["GD29", "GD30", "GD35", "GD38", "GD41", "GD46", "AO27", "AO28", "AL29", "AN29", "AO29", "AL30", "AL35", "AE38", "AL41"],
     "bopreal": ["BPOA7", "BPOB7", "BPOC7", "BPOD7", "BPOA8", "BPOB8"],
     "acciones": ["GGAL", "YPFD", "PAMP"],
+    "panel_lider": ["ALUA", "BBAR", "BMA", "BYMA", "CEPU", "COME", "CRES", "EDN", "GGAL", "IRSA", "LOMA", "METR",
+                    "PAMP", "SUPV", "TECO2", "TGNO4", "TGSU2", "TRAN", "TXAR", "VALO", "YPFD"],
     "cedears": ["SPY", "GOOGL", "NU", "NVDA", "MELI", "KO"],
     "bonos_mep_ccl": "AL30",
     "cer": ["TZXO6", "TZXD6", "TZXM7", "TZX27", "TZXS7", "TZXD7", "TZX28", "TX26", "TX28", "TX31"],

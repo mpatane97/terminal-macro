@@ -1,5 +1,5 @@
 {
-  "_nota": "Condiciones de emisión usadas para calcular TIR y duration. Valores por 100 de valor nominal original. VERIFICAR contra prospecto antes de confiar en la TIR: fueron cargados de memoria y deben validarse contra Rava o el prospecto.",
+  "_nota": "Condiciones de emisión usadas para calcular TIR y duration (por 100 VN original). AL/GD validados contra bonistas.com (02/10/2026). AO27/AO28/AO29/AN29 según resoluciones de emisión.",
   "_formato": "cupones: lista de [fecha_desde, tasa_anual_%]; amortizacion: fecha de la primera cuota, cantidad de cuotas y % de cada una (si 'cuotas_pct' es lista, se usa tal cual).",
   "familias": {
     "2029": {
@@ -250,10 +250,96 @@
           5.0
         ]
       ]
+    },
+    "AO27": {
+      "tickers": [
+        "AO27"
+      ],
+      "fin_de_mes": true,
+      "amortizacion": {
+        "primera": "2027-10-31",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2026-02-27",
+          6.0
+        ]
+      ],
+      "_fuente": "RC 11/2026"
+    },
+    "AO28": {
+      "tickers": [
+        "AO28"
+      ],
+      "fin_de_mes": true,
+      "amortizacion": {
+        "primera": "2028-10-31",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2026-03-31",
+          6.0
+        ]
+      ],
+      "_fuente": "RC 16/2026"
+    },
+    "AO29": {
+      "tickers": [
+        "AO29"
+      ],
+      "fin_de_mes": true,
+      "amortizacion": {
+        "primera": "2029-10-31",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2026-07-31",
+          6.0
+        ]
+      ],
+      "_fuente": "RC 44/2026"
+    },
+    "AN29": {
+      "tickers": [
+        "AN29"
+      ],
+      "pago_mes_dia": [
+        "05-30",
+        "11-30"
+      ],
+      "amortizacion": {
+        "primera": "2029-11-30",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2025-11-30",
+          6.5
+        ]
+      ],
+      "_fuente": "Llamado BONAR 2029N"
     }
   },
   "_pesos_nota": "LECAPs y BONCAPs: el vencimiento sale del ticker (S30N6 = 30/11/2026). El pago final por 100 VN hay que cargarlo acá (sale del aviso de licitación). Sin pago final no se calcula TEM.",
-  "pago_final_pesos": {},
+  "pago_final_pesos": {
+    "_fuente": "rava.com / comparatasas.ar, 02/10/2026",
+    "S16O6": 105.28,
+    "S30O6": 135.28,
+    "S13N6": 109.65,
+    "S30N6": 129.89,
+    "T15E7": 161.1,
+    "S29E7": 111.68,
+    "T30A7": 157.34,
+    "T31Y7": 152.18,
+    "T30J7": 156.04
+  },
   "_cer_nota": "Bonos CER: precio por 100 VN original. Capital ajustado por CER(t-10 hábiles)/CER inicial. CER inicial = CER 10 días hábiles antes de la emisión (calculado con la API del BCRA y validado contra rava.com).",
   "cer": {
     "TZXO6": {
