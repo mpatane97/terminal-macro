@@ -12,6 +12,7 @@ from common import (DATA, HIST, changes_from_series, http_get, load_config, log,
                     read_json, run_blocks, today_ar, write_json)
 
 CFG = load_config("instruments.json")
+BONOS = load_config("bonos.json")
 FRED_KEY = os.environ.get("FRED_API_KEY", "")
 FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
 BCRA = "https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias"
@@ -323,6 +324,8 @@ def ar_backfill():
             continue
         try:
             rows = http_get(f"https://data912.com/historical/{kind}/{t}", timeout=30)
+            if not isinstance(rows, list):
+                raise RuntimeError(f"respuesta inesperada: {str(rows)[:100]}")
             for r in rows:
                 d = str(r.get("date", ""))[:10]
                 if d >= cutoff and num(r.get("c")):
@@ -453,6 +456,23 @@ def earnings():
     return out, "Finnhub (secundaria)"
 
 
+def lecaps_auto():
+    """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
+    import lecaps
+    tickers = []
+    for path in ("/live/arg_notes", "/live/arg_bonds"):
+        try:
+            tickers += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=25) if r.get("symbol")]
+        except Exception as e:  # noqa: BLE001
+            log.warning("data912 %s: %s", path, e)
+    if not tickers:
+        raise RuntimeError("data912 no devolvió tickers")
+    manuales = BONOS.get("pago_final_pesos", {})
+    terms, resumen = lecaps.actualizar(tickers, manuales)
+    resumen["automaticas"] = sorted(t for t, e in terms.items() if e.get("pago_final") and t not in manuales)
+    return resumen, "BYMA ficha técnica; respaldo: Secretaría de Finanzas"
+
+
 if __name__ == "__main__":
     run_blocks(DATA / "daily.json", {
         "us_macro": us_macro,
@@ -472,5 +492,6 @@ if __name__ == "__main__":
         "us_senales": us_senales,
         "megacaps_info": megacaps_info,
         "earnings": earnings,
+        "lecaps_auto": lecaps_auto,
     })
     log.info("daily.json actualizado %s", now_iso())

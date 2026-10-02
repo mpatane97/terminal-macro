@@ -156,7 +156,9 @@ def ar_market():
     bopreal = [usd_row(t) for t in a["bopreal"]]
 
     pesos = []
-    payoffs = BONOS.get("pago_final_pesos", {})
+    # pagos finales: los calculados solos (scripts/lecaps.py) y, encima, los cargados a mano
+    auto = {t: e["pago_final"] for t, e in (read_json(HIST / "lecaps_terms.json", {}) or {}).items() if e.get("pago_final")}
+    payoffs = {**auto, **BONOS.get("pago_final_pesos", {})}
     for sym, r in px.items():
         mat = bonds.maturity_from_ticker(sym)
         if not mat or mat <= settle:
