@@ -54,7 +54,7 @@ def markets():
 
 
 def _meta(it):
-    return {k: it[k] for k in ("id", "nombre", "unidad", "cedear") if k in it}
+    return {k: it[k] for k in ("id", "nombre", "unidad", "cedear", "sector") if k in it}
 
 
 # ---------- Dólares (dolarapi) ----------
@@ -212,7 +212,7 @@ def ar_market():
     write_json(HIST / "ar_closes.json", _trim(hist))
 
     return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar,
-            "acciones": acciones, "panel_lider": panel, "cedears": cedears, "cedears_mega": mega, "liquidacion": settle.isoformat()}, \
+            "acciones": acciones, "panel_lider": panel, "cedears": cedears, "cedears_mega": mega, "sectores": a.get("sectores", {}), "liquidacion": settle.isoformat()}, \
         "data912.com (secundaria); TIR y TEM: cálculo propio"
 
 
