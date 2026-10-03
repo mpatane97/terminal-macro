@@ -310,115 +310,134 @@
         "id": "NVDA",
         "nombre": "Nvidia",
         "yahoo": "NVDA",
-        "cedear": "NVDA"
+        "cedear": "NVDA",
+        "sector": "XLK"
       },
       {
         "id": "MSFT",
         "nombre": "Microsoft",
         "yahoo": "MSFT",
-        "cedear": "MSFT"
+        "cedear": "MSFT",
+        "sector": "XLK"
       },
       {
         "id": "AAPL",
         "nombre": "Apple",
         "yahoo": "AAPL",
-        "cedear": "AAPL"
+        "cedear": "AAPL",
+        "sector": "XLK"
       },
       {
         "id": "GOOGL",
         "nombre": "Alphabet",
         "yahoo": "GOOGL",
-        "cedear": "GOOGL"
+        "cedear": "GOOGL",
+        "sector": "XLC"
       },
       {
         "id": "AMZN",
         "nombre": "Amazon",
         "yahoo": "AMZN",
-        "cedear": "AMZN"
+        "cedear": "AMZN",
+        "sector": "XLY"
       },
       {
         "id": "META",
         "nombre": "Meta",
         "yahoo": "META",
-        "cedear": "META"
+        "cedear": "META",
+        "sector": "XLC"
       },
       {
         "id": "AVGO",
         "nombre": "Broadcom",
         "yahoo": "AVGO",
-        "cedear": "AVGO"
+        "cedear": "AVGO",
+        "sector": "XLK"
       },
       {
         "id": "TSLA",
         "nombre": "Tesla",
         "yahoo": "TSLA",
-        "cedear": "TSLA"
+        "cedear": "TSLA",
+        "sector": "XLY"
       },
       {
         "id": "BRK.B",
         "nombre": "Berkshire Hathaway",
         "yahoo": "BRK-B",
-        "cedear": "BRKB"
+        "cedear": "BRKB",
+        "sector": "XLF"
       },
       {
         "id": "JPM",
         "nombre": "JPMorgan",
         "yahoo": "JPM",
-        "cedear": "JPM"
+        "cedear": "JPM",
+        "sector": "XLF"
       },
       {
         "id": "WMT",
         "nombre": "Walmart",
         "yahoo": "WMT",
-        "cedear": "WMT"
+        "cedear": "WMT",
+        "sector": "XLP"
       },
       {
         "id": "LLY",
         "nombre": "Eli Lilly",
         "yahoo": "LLY",
-        "cedear": "LLY"
+        "cedear": "LLY",
+        "sector": "XLV"
       },
       {
         "id": "ORCL",
         "nombre": "Oracle",
         "yahoo": "ORCL",
-        "cedear": "ORCL"
+        "cedear": "ORCL",
+        "sector": "XLK"
       },
       {
         "id": "V",
         "nombre": "Visa",
         "yahoo": "V",
-        "cedear": "V"
+        "cedear": "V",
+        "sector": "XLF"
       },
       {
         "id": "MA",
         "nombre": "Mastercard",
         "yahoo": "MA",
-        "cedear": "MA"
+        "cedear": "MA",
+        "sector": "XLF"
       },
       {
         "id": "XOM",
         "nombre": "ExxonMobil",
         "yahoo": "XOM",
-        "cedear": "XOM"
+        "cedear": "XOM",
+        "sector": "XLE"
       },
       {
         "id": "NFLX",
         "nombre": "Netflix",
         "yahoo": "NFLX",
-        "cedear": "NFLX"
+        "cedear": "NFLX",
+        "sector": "XLC"
       },
       {
         "id": "COST",
         "nombre": "Costco",
         "yahoo": "COST",
-        "cedear": "COST"
+        "cedear": "COST",
+        "sector": "XLP"
       },
       {
         "id": "JNJ",
         "nombre": "Johnson & Johnson",
         "yahoo": "JNJ",
-        "cedear": "JNJ"
+        "cedear": "JNJ",
+        "sector": "XLV"
       }
     ],
     "megacaps_global": [
@@ -426,55 +445,64 @@
         "id": "TSM",
         "nombre": "TSMC",
         "yahoo": "TSM",
-        "cedear": "TSM"
+        "cedear": "TSM",
+        "sector": "XLK"
       },
       {
         "id": "ARAMCO",
         "nombre": "Saudi Aramco",
         "yahoo": "2222.SR",
-        "cedear": null
+        "cedear": null,
+        "sector": "XLE"
       },
       {
         "id": "TCEHY",
         "nombre": "Tencent",
         "yahoo": "TCEHY",
-        "cedear": null
+        "cedear": null,
+        "sector": "XLC"
       },
       {
         "id": "ASML",
         "nombre": "ASML",
         "yahoo": "ASML",
-        "cedear": "ASML"
+        "cedear": "ASML",
+        "sector": "XLK"
       },
       {
         "id": "SAP",
         "nombre": "SAP",
         "yahoo": "SAP",
-        "cedear": "SAP"
+        "cedear": "SAP",
+        "sector": "XLK"
       },
       {
         "id": "BABA",
         "nombre": "Alibaba",
         "yahoo": "BABA",
-        "cedear": "BABA"
+        "cedear": "BABA",
+        "sector": "XLY"
       },
       {
         "id": "TM",
         "nombre": "Toyota",
         "yahoo": "TM",
-        "cedear": "TM"
+        "cedear": "TM",
+        "sector": "XLY"
       },
       {
         "id": "AZN",
         "nombre": "AstraZeneca",
         "yahoo": "AZN",
-        "cedear": "AZN"
+        "cedear": "AZN",
+        "sector": "XLV"
       },
       {
         "id": "LVMUY",
         "nombre": "LVMH",
         "yahoo": "LVMUY",
-        "cedear": null
+        "cedear": null,
+        "sector": "XLY"
       }
     ],
     "empresas_seleccion": [
@@ -482,61 +510,71 @@
         "id": "NU",
         "nombre": "Nu Holdings",
         "yahoo": "NU",
-        "cedear": "NU"
+        "cedear": "NU",
+        "sector": "XLF"
       },
       {
         "id": "MELI",
         "nombre": "MercadoLibre",
         "yahoo": "MELI",
-        "cedear": "MELI"
+        "cedear": "MELI",
+        "sector": "XLY"
       },
       {
         "id": "AMD",
         "nombre": "AMD",
         "yahoo": "AMD",
-        "cedear": "AMD"
+        "cedear": "AMD",
+        "sector": "XLK"
       },
       {
         "id": "PLTR",
         "nombre": "Palantir",
         "yahoo": "PLTR",
-        "cedear": "PLTR"
+        "cedear": "PLTR",
+        "sector": "XLK"
       },
       {
         "id": "KO",
         "nombre": "Coca-Cola",
         "yahoo": "KO",
-        "cedear": "KO"
+        "cedear": "KO",
+        "sector": "XLP"
       },
       {
         "id": "VIST",
         "nombre": "Vista Energy",
         "yahoo": "VIST",
-        "cedear": "VIST"
+        "cedear": "VIST",
+        "sector": "XLE"
       },
       {
         "id": "GLOB",
         "nombre": "Globant",
         "yahoo": "GLOB",
-        "cedear": "GLOB"
+        "cedear": "GLOB",
+        "sector": "XLK"
       },
       {
         "id": "PBR",
         "nombre": "Petrobras",
         "yahoo": "PBR",
-        "cedear": "PBR"
+        "cedear": "PBR",
+        "sector": "XLE"
       },
       {
         "id": "VALE",
         "nombre": "Vale",
         "yahoo": "VALE",
-        "cedear": "VALE"
+        "cedear": "VALE",
+        "sector": "XLB"
       },
       {
         "id": "SPCX",
         "nombre": "SpaceX",
         "yahoo": "SPCX",
-        "cedear": "SPCX"
+        "cedear": "SPCX",
+        "sector": "XLI"
       }
     ]
   },
@@ -618,7 +656,42 @@
     "tamar": [
       "TMF27",
       "TML27"
-    ]
+    ],
+    "sectores": {
+      "Bancos y financieras": [
+        "BBAR",
+        "BMA",
+        "GGAL",
+        "SUPV",
+        "VALO",
+        "BYMA"
+      ],
+      "Petróleo y gas": [
+        "YPFD",
+        "PAMP",
+        "TGSU2",
+        "TGNO4",
+        "METR"
+      ],
+      "Electricidad": [
+        "CEPU",
+        "EDN",
+        "TRAN"
+      ],
+      "Materiales": [
+        "ALUA",
+        "TXAR",
+        "LOMA"
+      ],
+      "Real estate y agro": [
+        "CRES",
+        "IRSA"
+      ],
+      "Otros": [
+        "COME",
+        "TECO2"
+      ]
+    }
   },
   "earnings_top20": [
     "NVDA",
