@@ -315,6 +315,7 @@
     const cer = (arm.cer_tamar || []).filter((r) => r.tipo === "CER"), tamar = (arm.cer_tamar || []).filter((r) => r.tipo === "TAMAR");
     const m = meta(P, "ar_market");
     const ref = `<div class="strip">${[["TAMAR", bc.tamar], ["BADLAR", bc.badlar], ["Plazo fijo 30 d", bc.plazo_fijo]].map(([n, v]) => `<span><b>${n}</b> ${v ? pct(v.valor) : "—"} TNA</span>`).join("")}
+      ${(blk(P, "cauciones") || []).map((c) => `<span><b>Caución ${c.plazo} d</b> ${pct(c.tna)} TNA</span>`).join("")}
       <span><b>CER</b> ${fmt(bc.cer?.valor, 2)}</span><span><b>UVA</b> ${fmt(bc.uva?.valor, 2)}</span></div>`;
     const fija = panel("Tasa fija · LECAP y BONCAP", table(["Ticker", "Tipo", "Vto.", "Días", "Precio", "Dif", "Pago final", "TEM", "TNA", "TIREA"],
         pf.map((r) => [r.ticker, r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), pct(r.tna, 1), pct(r.tirea, 1)]))
@@ -357,8 +358,12 @@
          { name: "Mayorista hoy", cls: "ghost", line: true, ghost: true, nodots: true, points: a35 ? [{ x: 0, y: a35 }, { x: maxD, y: a35 }] : [] }],
         { xlabel: "Días al vencimiento", ylabel: "TEM %", ylabel2: "$ por US$", title: "Curva de tasa fija y banda cambiaria" })
       + `<div class="note">Eje izquierdo: TEM de cada letra. Eje derecho: dólar de equilibrio (el mayorista al vencimiento que empata la letra con comprar dólares hoy) contra el techo de la banda estimado. Mientras el dólar termine por debajo de la línea verde, la letra le gana al dólar.</div>`, { src: "" });
+    const cau = blk(P, "cauciones") || [];
+    const cauT = panel("Cauciones en pesos", table(["Plazo", "TNA", "Día", "TEM", "TEA"],
+        cau.map((c) => [`${c.plazo} día${c.plazo > 1 ? "s" : ""}`, pct(c.tna), chg(c.d_pb, 0, " pb"), pct(c.tem), pct(c.tea, 1)]))
+      + `<div class="note">Tasa colocadora de BYMA. TEM y TEA: renovando la caución al mismo plazo y tasa. Sirve para comparar contra la LECAP más corta.</div>`, { meta: meta(P, "cauciones") });
     const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d)])), { meta: m });
-    return `${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky">${curvaPesos}</div></div>
+    return `${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky view">${curvaPesos}${cauT}</div></div>
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
       <div class="cols-split"><div class="view">${beT}</div><div>${tam}</div></div>`;
   }
