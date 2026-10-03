@@ -76,6 +76,43 @@
     return out;
   }
 
+  /* ---------- Gráfico con dos ejes: tasa (izquierda) y pesos por dólar (derecha) ---------- */
+  function curvaDoble(izq, der, o) {
+    const W = 640, H = 280, L = 46, R = 56, T = 14, B = 34;
+    const pi = izq.flatMap((s) => s.points), pd = der.flatMap((s) => s.points);
+    if (!pi.length) return `<div class="empty">Sin datos para la curva.</div>`;
+    const x0 = 0, x1 = Math.max(...pi.map((p) => p.x), ...pd.map((p) => p.x)) * 1.03;
+    const rango = (ps) => { let a = Math.min(...ps.map((p) => p.y)), b = Math.max(...ps.map((p) => p.y)); const m = (b - a) * 0.12 || 1; return [a - m, b + m]; };
+    const [a0, a1] = rango(pi), [b0, b1] = pd.length ? rango(pd) : [0, 1];
+    const X = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
+    const YA = (v) => T + (1 - (v - a0) / (a1 - a0)) * (H - T - B), YB = (v) => T + (1 - (v - b0) / (b1 - b0)) * (H - T - B);
+    let g = niceTicks(a0, a1, 5).map((t) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${YA(t)}" y2="${YA(t)}"/><text x="${L - 6}" y="${YA(t) + 4}" text-anchor="end">${fmt(t, 2)}</text>`).join("");
+    if (pd.length) g += niceTicks(b0, b1, 5).map((t) => `<text x="${W - R + 6}" y="${YB(t) + 4}" text-anchor="start">${fmt(t, 0)}</text>`).join("");
+    g += niceTicks(x0, x1, 6).map((t) => `<text x="${X(t)}" y="${H - B + 16}" text-anchor="middle">${fmt(t, 0)}</text>`).join("");
+    g += `<text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">${esc(o.xlabel || "")}</text>`;
+    g += `<text x="12" y="${T + 4}" transform="rotate(-90 12 ${T + 4})" text-anchor="end">${esc(o.ylabel || "")}</text>`;
+    g += `<text x="${W - 6}" y="${T + 4}" transform="rotate(-90 ${W - 6} ${T + 4})" text-anchor="end">${esc(o.ylabel2 || "")}</text>`;
+    const dibujar = (s, Y, suf, dec) => {
+      const ps = s.points.filter((p) => p.x != null && p.y != null).sort((a, b) => a.x - b.x);
+      let h = "";
+      if (s.fit && ps.length > 2) {
+        const xs = ps.map((p) => Math.log(Math.max(p.x, 0.05))), ys = ps.map((p) => p.y), n = xs.length;
+        const mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+        const b = xs.reduce((acc, x, i) => acc + (x - mx) * (ys[i] - my), 0) / (xs.reduce((acc, x) => acc + (x - mx) ** 2, 0) || 1), a = my - b * mx;
+        const xa = ps[0].x, xb = ps[ps.length - 1].x;
+        h += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${Array.from({ length: 40 }, (_, k) => { const x = xa + (xb - xa) * k / 39; return `${X(x)},${Y(a + b * Math.log(Math.max(x, 0.05)))}`; }).join(" ")}"/>`;
+      }
+      if (s.line && ps.length > 1) h += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1 : 2}" ${s.ghost ? 'stroke-dasharray="4 4"' : ""} points="${ps.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}"/>`;
+      if (!s.nodots) h += ps.map((p, i) => `<circle class="${s.cls}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${s.small ? 2.5 : 3.5}"><title>${esc(p.label || "")} ${fmt(p.y, dec)}${suf}</title></circle>`
+        + (p.label && s.labels ? `<text class="lbl" x="${X(p.x) + 5}" y="${Y(p.y) + (i % 2 ? 14 : -7)}">${esc(p.label)}</text>` : "")).join("");
+      return h;
+    };
+    izq.forEach((s) => { g += dibujar(s, YA, "%", 2); });
+    der.forEach((s) => { g += dibujar(s, YB, "", 0); });
+    const leg = `<div class="legend">${[...izq.map((s) => [s, "eje izq."]), ...der.map((s) => [s, "eje der."])].map(([s, e]) => `<span class="${s.cls}"><i class="${s.cls}"></i>${esc(s.name)} <span class="na">(${e})</span></span>`).join("")}</div>`;
+    return `${leg}<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || "curva")}">${g}</svg></div>`;
+  }
+
   /* ---------- Fed: probabilidades de la próxima reunión ---------- */
   function fedOutlook(i = 0) {
     const ev = (blk(P, "fed_probs") || [])[i];
@@ -283,8 +320,6 @@
         pf.map((r) => [r.ticker, r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), pct(r.tna, 1), pct(r.tirea, 1)]))
       + (() => { const la = blk(D, "lecaps_auto") || {}, sinPago = pf.filter((r) => r.pago_final == null).map((r) => r.ticker);
           return `<div class="note">Las letras nuevas se suman solas: el pago final se calcula con la TEM y la fecha de emisión de la ficha de BYMA (o del resultado de licitación de Finanzas).${(la.automaticas || []).length ? ` Calculadas automáticamente: ${esc(la.automaticas.join(", "))}.` : ""}${sinPago.length ? ` Todavía sin condiciones publicadas: ${esc(sinPago.join(", "))} (se reintenta cada día).` : ""}</div>`; })(), { lead: true, meta: m });
-    const fijaCurva = panel("Curva de tasa fija", curve([{ name: "TEM", cls: "s1", fit: true, points: pf.filter((r) => r.tem != null).map((r) => ({ x: r.dias, y: r.tem, label: r.ticker })) }],
-        { xlabel: "Días al vencimiento", ylabel: "TEM %", ydec: 2, title: "Curva de tasa fija" }), { src: "" });
     const cerT = panel("Bonos CER", table(["Ticker", "Vto.", "Días", "Precio", "Dif", "TIR real", "MD"],
         cer.map((r) => [r.ticker, dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), fmt(r.dur_mod, 2)]))
       + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono.</div>`, { meta: m });
@@ -313,15 +348,17 @@
     const pfEq = a35 ? pf.filter((r) => r.pago_final && r.dias > 0) : [];
     const maxD = Math.max(30, ...pfEq.map((r) => r.dias));
     const pasos = Array.from({ length: 13 }, (_, k) => Math.round(maxD * k / 12));
-    const eqCurva = panel("Dólar de equilibrio vs. banda cambiaria", curve([
-        { name: "Dólar de equilibrio por letra", cls: "s1", fit: true, points: pfEq.map((r) => ({ x: r.dias, y: a35 * r.pago_final / r.precio, label: r.ticker })) },
-        { name: "Techo de la banda (estimado)", cls: "s2", line: true, nodots: true, points: pasos.map((d) => ({ x: d, y: techoAl(d), label: "Techo" })) },
-        { name: "Mayorista hoy", cls: "ghost", line: true, ghost: true, points: [{ x: 0, y: a35 }, { x: maxD, y: a35 }] }],
-        { xmin: 0, xlabel: "Días al vencimiento", ylabel: "$ por US$", ydec: 0, tdec: 0, ysuf: "", title: "Dólar de equilibrio vs. banda" })
-      + `<div class="note">Si el dólar termina por debajo de la curva naranja, la letra le gana al dólar. Piso de la banda hoy: ${ban ? fmt(ban.piso, 0) : "—"} (fuera de escala; baja con la misma regla).</div>`, { src: "" });
+    // un solo gráfico: la curva de tasa fija (eje izquierdo) y, en pesos por dólar, el dólar de equilibrio de cada letra
+    // contra el techo de la banda proyectado y el mayorista de hoy (eje derecho)
+    const curvaPesos = panel("Curva de tasa fija y banda cambiaria", curvaDoble(
+        [{ name: "TEM de cada letra", cls: "s1", fit: true, labels: true, points: pf.filter((r) => r.tem != null).map((r) => ({ x: r.dias, y: r.tem, label: r.ticker })) }],
+        [{ name: "Dólar de equilibrio", cls: "s3", line: true, small: true, points: pfEq.map((r) => ({ x: r.dias, y: a35 * r.pago_final / r.precio, label: r.ticker })) },
+         { name: "Techo de la banda", cls: "s2", line: true, nodots: true, points: pasos.map((d) => ({ x: d, y: techoAl(d) })).filter((p) => p.y != null) },
+         { name: "Mayorista hoy", cls: "ghost", line: true, ghost: true, nodots: true, points: a35 ? [{ x: 0, y: a35 }, { x: maxD, y: a35 }] : [] }],
+        { xlabel: "Días al vencimiento", ylabel: "TEM %", ylabel2: "$ por US$", title: "Curva de tasa fija y banda cambiaria" })
+      + `<div class="note">Eje izquierdo: TEM de cada letra. Eje derecho: dólar de equilibrio (el mayorista al vencimiento que empata la letra con comprar dólares hoy) contra el techo de la banda estimado. Mientras el dólar termine por debajo de la línea verde, la letra le gana al dólar.</div>`, { src: "" });
     const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d)])), { meta: m });
-    return `${ref}<div class="cols-split"><div class="view">${fija}</div><div class="sticky">${fijaCurva}</div></div>
-      <div class="cols-split"><div class="view">${eqT}</div><div class="sticky">${eqCurva}</div></div>
+    return `${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky">${curvaPesos}</div></div>
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
       <div class="cols-split"><div class="view">${beT}</div><div>${tam}</div></div>`;
   }

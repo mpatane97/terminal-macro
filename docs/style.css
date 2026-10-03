@@ -153,3 +153,6 @@ h3.cal-dia { padding-top: 14px; text-transform: capitalize; color: var(--fg); }
 .cal .e.alto { font-weight: 600; }
 .cal .d { font: 12px var(--font-num); color: var(--muted); text-align: right; }
 @media (max-width: 720px) { .cal li { grid-template-columns: 44px minmax(0, 1fr); } .cal .tag { grid-column: 2; } .cal .e, .cal .d { grid-column: 2; text-align: left; } }
+.chart .s3 { stroke: #4fc1a6; fill: #4fc1a6; }
+.legend span.s1 i { background: var(--accent); } .legend span.s2 i { background: #6c9bd2; } .legend span.s3 i { background: #4fc1a6; } .legend span.ghost i { background: var(--muted); }
+.legend { flex-wrap: wrap; }
