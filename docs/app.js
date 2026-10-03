@@ -22,8 +22,11 @@
     const src = opts.src ?? (m.source ? `${esc(m.source)} · ${hhmm(m.updated)}` : "");
     return `<section class="panel ${opts.lead ? "lead" : ""}"><h2><span>${esc(title)}${stale}</span><span class="src">${src}</span></h2><div class="body">${inner}</div></section>`;
   }
+  // papeles que no operaron en la rueda: ticker con etiqueta "s/op" y fila atenuada
+  const tk = (r) => `${esc(r.ticker)}${r.opero === false ? `<span class="sinop-tag" title="No operó en la rueda de hoy: el precio es el último conocido">s/op</span>` : ""}`;
+  const fila = (r, celdas) => { if (r.opero === false) celdas.cls = "sinop"; return celdas; };
   const table = (head, rows, left = []) => rows.length
-    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">Sin datos todavía.</div>`;
   const byId = (arr, id) => (arr || []).find((x) => x.id === id) || {};
 
@@ -35,6 +38,32 @@
   const VARS = { d: "Día", w: "Sem", m: "Mes", y: "Año" };
 
   /* ---------- Gráfico de dispersión/curva (SVG propio) ---------- */
+  // Ubica etiquetas sin que se pisen: prueba arriba, abajo y más lejos; si no entra a la derecha, la pone a la izquierda.
+  function etiquetador(xmax) {
+    const cajas = [];
+    const choca = (b) => cajas.some((c) => b.x < c.x + c.w && b.x + b.w > c.x && b.y < c.y + c.h && b.y + b.h > c.y);
+    return (x, y, txt) => {
+      const w = txt.length * 6.4 + 2, h = 11;
+      for (const dy of [-7, 14, -19, 26, -31, 38]) for (const izq of [false, true]) {
+        const bx = izq ? x - 5 - w : x + 5;
+        if (!izq && bx + w > xmax) continue;
+        const b = { x: bx, y: y + dy - 9, w, h };
+        if (!choca(b)) { cajas.push(b); return `<text class="lbl" x="${izq ? x - 5 : x + 5}" y="${y + dy}" ${izq ? 'text-anchor="end"' : ""}>${esc(txt)}</text>`; }
+      }
+      return "";  // si no hay lugar, se omite la etiqueta (el valor sigue en el tooltip del punto)
+    };
+  }
+  // ajuste logarítmico y = a + b·ln(x) con los papeles que operaron (los "s/op" no deforman la curva)
+  function ajusteLog(ps) {
+    const v = ps.filter((p) => !p.sinop);
+    if (v.length < 3) return null;
+    const xs = v.map((p) => Math.log(Math.max(p.x, 0.05))), ys = v.map((p) => p.y), n = xs.length;
+    const mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+    const b = xs.reduce((acc, x, i) => acc + (x - mx) * (ys[i] - my), 0) / (xs.reduce((acc, x) => acc + (x - mx) ** 2, 0) || 1);
+    return { f: (x) => my - b * mx + b * Math.log(Math.max(x, 0.05)), xa: ps[0].x, xb: ps[ps.length - 1].x };
+  }
+  const punto = (cls, cx, cy, r, sinop, tip) => `<circle class="${cls}" cx="${cx}" cy="${cy}" r="${r}" ${sinop ? 'fill-opacity="0" stroke-width="1.5"' : ""}><title>${esc(tip)}${sinop ? " · no operó hoy" : ""}</title></circle>`;
+
   function curve(series, o) {
     const W = 640, H = 260, L = 46, R = 40, T = 14, B = 34;
     const pts = series.flatMap((s) => s.points).filter((p) => p.x != null && p.y != null);
@@ -52,20 +81,19 @@
     g += xt.map((t) => `<text x="${X(t.v ?? t)}" y="${H - B + 16}" text-anchor="middle">${esc(t.l ?? fmt(t, xdec))}</text>`).join("");
     g += `<text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">${esc(o.xlabel || "")}</text>`;
     g += `<text x="12" y="${T + 4}" transform="rotate(-90 12 ${T + 4})" text-anchor="end">${esc(o.ylabel || "")}</text>`;
-    series.forEach((s, si) => {
+    const etiquetas = [];
+    series.forEach((s) => {
       const ps = s.points.filter((p) => p.x != null && p.y != null).sort((a, b) => a.x - b.x);
-      if (s.fit && ps.length > 2) {
-        // ajuste logarítmico y = a + b·ln(x), como las curvas de bonistas
-        const xs = ps.map((p) => Math.log(Math.max(p.x, 0.05))), ys = ps.map((p) => p.y), n = xs.length;
-        const mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
-        const b = xs.reduce((acc, x, i) => acc + (x - mx) * (ys[i] - my), 0) / (xs.reduce((acc, x) => acc + (x - mx) ** 2, 0) || 1);
-        const a = my - b * mx, xa = ps[0].x, xb = ps[ps.length - 1].x;
-        const fitPts = Array.from({ length: 40 }, (_, k) => { const x = xa + (xb - xa) * k / 39; return `${X(x)},${Y(a + b * Math.log(Math.max(x, 0.05)))}`; });
-        g += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${fitPts.join(" ")}"/>`;
+      if (s.fit) {
+        const aj = ajusteLog(ps);
+        if (aj) g += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${Array.from({ length: 40 }, (_, k) => { const x = aj.xa + (aj.xb - aj.xa) * k / 39; return `${X(x)},${Y(aj.f(x))}`; }).join(" ")}"/>`;
       }
       if (s.line && ps.length > 1) g += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1 : 2}" ${s.ghost ? 'stroke-dasharray="4 4"' : ""} points="${ps.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}"/>`;
-      if (!s.nodots) g += ps.map((p) => `<circle class="${s.cls}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${s.ghost ? 2.5 : 3.5}"><title>${esc(p.label || "")} ${fmt(p.y, o.tdec ?? 2)}${o.ysuf ?? "%"}</title></circle>${p.label && !s.ghost && !s.nolabel ? `<text class="lbl" x="${X(p.x) + 5}" y="${Y(p.y) + (si % 2 ? 15 : -7)}">${esc(p.label)}</text>` : ""}`).join("");
+      if (!s.nodots) g += ps.map((p) => punto(s.cls, X(p.x), Y(p.y), s.ghost ? 2.5 : 3.5, p.sinop, `${p.label || ""} ${fmt(p.y, o.tdec ?? 2)}${o.ysuf ?? "%"}`)).join("");
+      if (!s.ghost && !s.nolabel) ps.forEach((p) => { if (p.label) etiquetas.push([X(p.x), Y(p.y), p.label]); });
     });
+    const pon = etiquetador(W - 2);
+    g += etiquetas.sort((a, b) => a[0] - b[0]).map(([x, y, t]) => pon(x, y, t)).join("");
     const leg = series.length > 1 ? `<div class="legend">${series.map((s) => `<span><i class="${s.cls}" style="background:currentColor"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
     return `${leg}<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || "curva")}">${g}</svg></div>`;
   }
@@ -92,23 +120,23 @@
     g += `<text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">${esc(o.xlabel || "")}</text>`;
     g += `<text x="12" y="${T + 4}" transform="rotate(-90 12 ${T + 4})" text-anchor="end">${esc(o.ylabel || "")}</text>`;
     g += `<text x="${W - 6}" y="${T + 4}" transform="rotate(-90 ${W - 6} ${T + 4})" text-anchor="end">${esc(o.ylabel2 || "")}</text>`;
+    const etiquetas = [];
     const dibujar = (s, Y, suf, dec) => {
       const ps = s.points.filter((p) => p.x != null && p.y != null).sort((a, b) => a.x - b.x);
       let h = "";
-      if (s.fit && ps.length > 2) {
-        const xs = ps.map((p) => Math.log(Math.max(p.x, 0.05))), ys = ps.map((p) => p.y), n = xs.length;
-        const mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
-        const b = xs.reduce((acc, x, i) => acc + (x - mx) * (ys[i] - my), 0) / (xs.reduce((acc, x) => acc + (x - mx) ** 2, 0) || 1), a = my - b * mx;
-        const xa = ps[0].x, xb = ps[ps.length - 1].x;
-        h += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${Array.from({ length: 40 }, (_, k) => { const x = xa + (xb - xa) * k / 39; return `${X(x)},${Y(a + b * Math.log(Math.max(x, 0.05)))}`; }).join(" ")}"/>`;
+      if (s.fit) {
+        const aj = ajusteLog(ps);
+        if (aj) h += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${Array.from({ length: 40 }, (_, k) => { const x = aj.xa + (aj.xb - aj.xa) * k / 39; return `${X(x)},${Y(aj.f(x))}`; }).join(" ")}"/>`;
       }
       if (s.line && ps.length > 1) h += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1 : 2}" ${s.ghost ? 'stroke-dasharray="4 4"' : ""} points="${ps.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}"/>`;
-      if (!s.nodots) h += ps.map((p, i) => `<circle class="${s.cls}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${s.small ? 2.5 : 3.5}"><title>${esc(p.label || "")} ${fmt(p.y, dec)}${suf}</title></circle>`
-        + (p.label && s.labels ? `<text class="lbl" x="${X(p.x) + 5}" y="${Y(p.y) + (i % 2 ? 14 : -7)}">${esc(p.label)}</text>` : "")).join("");
+      if (!s.nodots) h += ps.map((p) => punto(s.cls, X(p.x), Y(p.y), s.small ? 2.5 : 3.5, p.sinop, `${p.label || ""} ${fmt(p.y, dec)}${suf}`)).join("");
+      if (s.labels) ps.forEach((p) => { if (p.label) etiquetas.push([X(p.x), Y(p.y), p.label]); });
       return h;
     };
     izq.forEach((s) => { g += dibujar(s, YA, "%", 2); });
     der.forEach((s) => { g += dibujar(s, YB, "", 0); });
+    const pon = etiquetador(W - R);
+    g += etiquetas.sort((a, b) => a[0] - b[0]).map(([x, y, t]) => pon(x, y, t)).join("");
     const leg = `<div class="legend">${[...izq.map((s) => [s, "eje izq."]), ...der.map((s) => [s, "eje der."])].map(([s, e]) => `<span class="${s.cls}"><i class="${s.cls}"></i>${esc(s.name)} <span class="na">(${e})</span></span>`).join("")}</div>`;
     return `${leg}<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || "curva")}">${g}</svg></div>`;
   }
@@ -290,8 +318,8 @@
 
   // Tabla estilo bonistas para bonos en dólares
   const BH = ["Ticker", "Precio", "Dif", "TIR", "TNA", "MD", "Vol (M)", "Paridad", "VT", "Próx. pago", "Días vto."];
-  const bRow = (r) => [r.ticker, fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), pct(r.tna, 1), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
-    r.dias_prox != null ? `${r.dias_prox} d<span class="sub">${fmt(r.monto_prox, 2)}</span>` : "—", r.dias_vto ?? "—"];
+  const bRow = (r) => fila(r, [tk(r), fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), pct(r.tna, 1), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
+    r.dias_prox != null ? `${r.dias_prox} d<span class="sub">${fmt(r.monto_prox, 2)}</span>` : "—", r.dias_vto ?? "—"]);
 
   function viewArUSD() {
     const arm = blk(P, "ar_market") || {}, sob = arm.soberanos || [], bop = arm.bopreal || [];
@@ -301,8 +329,8 @@
     const tablas = panel("Bonos USD · Ley Nueva York", table(BH, ny.map(bRow)), { lead: true, meta: m })
       + panel("Bonos USD · Ley Argentina", table(BH, ar.map(bRow)), { meta: m });
     const grafico = panel("Curva en dólares MEP", curve([
-        { name: "Ley Nueva York", cls: "s1", fit: true, points: ny.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker })) },
-        { name: "Ley Argentina", cls: "s2", fit: true, points: ar.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker })) }],
+        { name: "Ley Nueva York", cls: "s1", fit: true, points: ny.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) },
+        { name: "Ley Argentina", cls: "s2", fit: true, points: ar.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR %", title: "Curva de bonos en dólares" })
       + `<div class="note">Precio por 100 VN en dólares MEP, liquidación ${dmy(arm.liquidacion)}. Línea: ajuste logarítmico de cada curva. Próx. pago: días y monto por 100 VN.</div>`, { src: "" });
     return `<div class="cols-split"><div class="view">${tablas}</div><div class="sticky">${grafico}</div></div>
@@ -318,13 +346,13 @@
       ${(blk(P, "cauciones") || []).map((c) => `<span><b>Caución ${c.plazo} d</b> ${pct(c.tna)} TNA</span>`).join("")}
       <span><b>CER</b> ${fmt(bc.cer?.valor, 2)}</span><span><b>UVA</b> ${fmt(bc.uva?.valor, 2)}</span></div>`;
     const fija = panel("Tasa fija · LECAP y BONCAP", table(["Ticker", "Tipo", "Vto.", "Días", "Precio", "Dif", "Pago final", "TEM", "TNA", "TIREA"],
-        pf.map((r) => [r.ticker, r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), pct(r.tna, 1), pct(r.tirea, 1)]))
+        pf.map((r) => fila(r, [tk(r), r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), pct(r.tna, 1), pct(r.tirea, 1)])))
       + (() => { const la = blk(D, "lecaps_auto") || {}, sinPago = pf.filter((r) => r.pago_final == null).map((r) => r.ticker);
           return `<div class="note">Las letras nuevas se suman solas: el pago final se calcula con la TEM y la fecha de emisión de la ficha de BYMA (o del resultado de licitación de Finanzas).${(la.automaticas || []).length ? ` Calculadas automáticamente: ${esc(la.automaticas.join(", "))}.` : ""}${sinPago.length ? ` Todavía sin condiciones publicadas: ${esc(sinPago.join(", "))} (se reintenta cada día).` : ""}</div>`; })(), { lead: true, meta: m });
     const cerT = panel("Bonos CER", table(["Ticker", "Vto.", "Días", "Precio", "Dif", "TIR real", "MD"],
-        cer.map((r) => [r.ticker, dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), fmt(r.dur_mod, 2)]))
+        cer.map((r) => fila(r, [tk(r) + (r.auto ? `<span class="sub" title="Dado de alta automáticamente con la ficha de BYMA">auto</span>` : ""), dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), fmt(r.dur_mod, 2)])))
       + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono.</div>`, { meta: m });
-    const cerCurva = panel("Curva CER", curve([{ name: "TIR real", cls: "s2", fit: true, points: cer.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker })) }],
+    const cerCurva = panel("Curva CER", curve([{ name: "TIR real", cls: "s2", fit: true, points: cer.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR real %", title: "Curva CER" }), { src: "" });
     // inflación implícita vs REM (promedio de las medianas mensuales disponibles hasta el vencimiento)
     const remM = rem.ipc_mensual || [];
@@ -352,7 +380,7 @@
     // un solo gráfico: la curva de tasa fija (eje izquierdo) y, en pesos por dólar, el dólar de equilibrio de cada letra
     // contra el techo de la banda proyectado y el mayorista de hoy (eje derecho)
     const curvaPesos = panel("Curva de tasa fija y banda cambiaria", curvaDoble(
-        [{ name: "TEM de cada letra", cls: "s1", fit: true, labels: true, points: pf.filter((r) => r.tem != null).map((r) => ({ x: r.dias, y: r.tem, label: r.ticker })) }],
+        [{ name: "TEM de cada letra", cls: "s1", fit: true, labels: true, points: pf.filter((r) => r.tem != null).map((r) => ({ x: r.dias, y: r.tem, label: r.ticker, sinop: r.opero === false })) }],
         [{ name: "Dólar de equilibrio", cls: "s3", line: true, small: true, points: pfEq.map((r) => ({ x: r.dias, y: a35 * r.pago_final / r.precio, label: r.ticker })) },
          { name: "Techo de la banda", cls: "s2", line: true, nodots: true, points: pasos.map((d) => ({ x: d, y: techoAl(d) })).filter((p) => p.y != null) },
          { name: "Mayorista hoy", cls: "ghost", line: true, ghost: true, nodots: true, points: a35 ? [{ x: 0, y: a35 }, { x: maxD, y: a35 }] : [] }],
@@ -362,7 +390,7 @@
     const cauT = panel("Cauciones en pesos", table(["Plazo", "TNA", "Día", "TEM", "TEA"],
         cau.map((c) => [`${c.plazo} día${c.plazo > 1 ? "s" : ""}`, pct(c.tna), chg(c.d_pb, 0, " pb"), pct(c.tem), pct(c.tea, 1)]))
       + `<div class="note">Tasa colocadora de BYMA. TEM y TEA: renovando la caución al mismo plazo y tasa. Sirve para comparar contra la LECAP más corta.</div>`, { meta: meta(P, "cauciones") });
-    const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d)])), { meta: m });
+    const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d)]))), { meta: m });
     return `${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky view">${curvaPesos}${cauT}</div></div>
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
       <div class="cols-split"><div class="view">${beT}</div><div>${tam}</div></div>`;
@@ -379,11 +407,11 @@
     // referencia de sector: promedio de los demás papeles del mismo sector (sin contar al propio)
     const promSector = (t, k) => { const s = secDe(t); if (!s || s === "Otros") return null; const v = pl.filter((r) => r.ticker !== t && secs[s].includes(r.ticker) && r[k] != null).map((r) => r[k]); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
     const panelT = panel("Panel líder", table(["Ticker", "Sector", "Precio", "Día", "Sem", "Mes", "Año", "vs. Merval (mes)", "vs. sector (mes)", "vs. Merval (año)"],
-        pl.map((r) => [r.ticker, `<span class="na">${esc(secDe(r.ticker) || "—")}</span>`, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y),
-          chg(rel(r.m, mv.m)), chg(rel(r.m, promSector(r.ticker, "m"))), chg(rel(r.y, mv.y))]), [1])
+        pl.map((r) => fila(r, [tk(r), `<span class="na">${esc(secDe(r.ticker) || "—")}</span>`, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y),
+          chg(rel(r.m, mv.m)), chg(rel(r.m, promSector(r.ticker, "m"))), chg(rel(r.y, mv.y))])), [1])
       + `<div class="note">"vs." = cuánto le ganó (verde) o perdió (rojo) cada acción a su referencia en el período, en pesos. Sector: promedio simple de los otros papeles del panel del mismo sector.</div>`, { lead: true, meta: m });
     const adrs = panel("ADRs en Nueva York", table(["", "USD", "Día", "Sem", "Mes", "Año"], priceRows(mk.adrs, ["d", "w", "m", "y"])), { meta: meta(P, "markets") });
-    const ced = panel("CEDEARs", table(["Ticker", "Precio", "Día", "Mes", "MEP implícito", "CCL implícito"], (arm.cedears || []).map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d), chg(r.m), fmt(r.mep, 2), fmt(r.ccl, 2)])), { meta: m });
+    const ced = panel("CEDEARs", table(["Ticker", "Precio", "Día", "Mes", "MEP implícito", "CCL implícito"], (arm.cedears || []).map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d), chg(r.m), fmt(r.mep, 2), fmt(r.ccl, 2)]))), { meta: m });
     return `${head}${panelT}<div class="cols-2">${adrs}${ced}</div>`;
   }
 
@@ -408,13 +436,15 @@
   }
 
   // Bolsas abiertas o cerradas (lunes a viernes, sin contemplar feriados)
-  const BOLSAS = [["Nueva York", "America/New_York", 570, 960], ["Londres", "Europe/London", 480, 990], ["Fráncfort", "Europe/Berlin", 540, 1050],
-    ["Tokio", "Asia/Tokyo", 540, 930], ["Hong Kong", "Asia/Hong_Kong", 570, 960], ["San Pablo", "America/Sao_Paulo", 600, 1020], ["BYMA", "America/Argentina/Buenos_Aires", 660, 1020]];
+  const BOLSAS = [["Nueva York", "America/New_York", 570, 960, "us"], ["Londres", "Europe/London", 480, 990, "uk"], ["Fráncfort", "Europe/Berlin", 540, 1050, "de"],
+    ["Tokio", "Asia/Tokyo", 540, 930, "jp"], ["Hong Kong", "Asia/Hong_Kong", 570, 960, "hk"], ["San Pablo", "America/Sao_Paulo", 600, 1020, "br"], ["BYMA", "America/Argentina/Buenos_Aires", 660, 1020, "ar"]];
+  const feriadoHoy = (mercado, tz) => { const hoy = new Date().toLocaleDateString("en-CA", { timeZone: tz }); return ((blk(D, "feriados") || {})[mercado] || []).find((f) => f.fecha === hoy); };
   function bolsas() {
-    return `<div class="strip">${BOLSAS.map(([n, tz, a, b]) => {
+    return `<div class="strip">${BOLSAS.map(([n, tz, a, b, k]) => {
       const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date()).map((x) => [x.type, x.value]));
-      const mins = (+p.hour % 24) * 60 + +p.minute, open = !["Sat", "Sun"].includes(p.weekday) && mins >= a && mins < b;
-      return `<span class="${open ? "abierta" : "cerrada"}"><i></i>${n} ${p.hour}:${p.minute}</span>`;
+      const fer = feriadoHoy(k, tz);
+      const mins = (+p.hour % 24) * 60 + +p.minute, open = !fer && !["Sat", "Sun"].includes(p.weekday) && mins >= a && mins < b;
+      return `<span class="${open ? "abierta" : "cerrada"}" ${fer ? `title="${esc(fer.nombre)}"` : ""}><i></i>${n} ${p.hour}:${p.minute}${fer ? " · feriado" : ""}</span>`;
     }).join("")}</div>`;
   }
 
@@ -446,7 +476,7 @@
   }
 
   /* ---------- Calendario unificado: una sola agenda, cada tipo de evento con su color ---------- */
-  const CATS = { us: "Datos EE.UU.", fed: "Fed", ar: "Argentina", bc: "Bancos centrales", intl: "Datos internacionales", earn: "Balances" };
+  const CATS = { us: "Datos EE.UU.", fed: "Fed", ar: "Argentina", bc: "Bancos centrales", intl: "Datos internacionales", earn: "Balances", fer: "Feriados" };
   let calOff = new Set();
   try { calOff = new Set(JSON.parse(localStorage.getItem("calOff") || "[]")); } catch {}
   function agenda() {
@@ -459,6 +489,9 @@
     const intl = blk(D, "calendar_intl") || {};
     for (const r of intl.bancos || []) ev.push({ cat: "bc", t: `${r.fecha}T${r.hora || "12:00"}:00-03:00`, hora: !!r.hora, txt: `${r.banco} · decisión de tasa`, det: "", imp: "alto" });
     for (const r of intl.datos_semana || []) ev.push({ cat: "intl", t: r.fecha, hora: true, txt: `${r.pais} · ${r.evento}`, det: [r.esperado && `esp. ${r.esperado}`, r.previo && `prev. ${r.previo}`].filter(Boolean).join(" · "), imp: "alto" });
+    const fer = blk(D, "feriados") || {};
+    for (const r of fer.ar || []) ev.push({ cat: "fer", t: `${r.fecha}T12:00:00-03:00`, hora: false, txt: `Argentina · ${r.nombre}`, det: "BYMA cerrado", imp: "" });
+    for (const r of fer.us || []) ev.push({ cat: "fer", t: `${r.fecha}T12:00:00-03:00`, hora: false, txt: `EE.UU. · ${r.nombre}`, det: "Wall Street cerrado", imp: "" });
     for (const r of blk(D, "earnings") || []) ev.push({ cat: "earn", t: `${r.fecha}T12:00:00-03:00`, hora: false, txt: r.ticker, det: [r.hora, r.eps_estimado != null && `EPS est. ${fmt(r.eps_estimado, 2)}`].filter(Boolean).join(" · "), imp: "" });
     const fin = new Date(hoy.getTime() + 60 * 864e5);
     return ev.filter((e) => new Date(e.t) >= hoy && new Date(e.t) < fin).sort((x, y) => new Date(x.t) - new Date(y.t));
@@ -487,19 +520,51 @@
     mercados: viewMercados, empresas: viewEmpresas, calendario: viewCalendario };
   let current = "resumen";
 
+  // horas hábiles (lunes a viernes) transcurridas desde una fecha: el fin de semana no cuenta como atraso
+  function horasHabiles(iso) {
+    if (!iso) return Infinity;
+    let t = new Date(iso).getTime(), h = 0; const fin = Date.now();
+    while (t < fin) { const d = new Date(t).getUTCDay(); if (d !== 0 && d !== 6) h += 1; t += 36e5; }
+    return h;
+  }
+  const NOMBRES = { markets: "Mercados (Yahoo)", dolares: "Dólares", ar_market: "Precios Argentina (data912)", fed_probs: "Probabilidades Fed (Kalshi)",
+    cauciones: "Cauciones", news: "Noticias", us_macro: "Macro EE.UU.", fed: "Fed", treasuries: "Treasuries", ar_bcra: "BCRA", ipc: "IPC", riesgo_pais: "Riesgo país",
+    emae: "EMAE", rem: "REM", bandas: "Bandas cambiarias", calendar_us: "Calendario EE.UU.", calendar_ar: "Calendario INDEC", calendar_intl: "Calendario internacional",
+    earnings: "Balances", megacaps_info: "Capitalizaciones", lecaps_auto: "Altas de LECAP", cer_auto: "Altas de bonos CER", feriados: "Feriados" };
+  function problemas() {
+    const out = [];
+    // un bloque que no se actualiza hace más de 2 días hábiles (48 h de lunes a viernes)
+    for (const [src, lim] of [[P, 48], [D, 48]]) for (const [k, v] of Object.entries(src)) {
+      if (!v || typeof v !== "object" || !("updated" in v) || k === "dolares_hist" || k === "ar_backfill" || k === "avisos") continue;
+      const h = horasHabiles(v.updated);
+      if (h > lim) out.push(`${NOMBRES[k] || k}: sin actualizar desde ${v.updated ? hhmm(v.updated) : "siempre"}${v.error ? ` (${v.error})` : ""}`);
+    }
+    if (horasHabiles(P.generated) > 48) out.unshift(`La actualización de precios no corre desde ${hhmm(P.generated)}`);
+    if (horasHabiles(D.generated) > 48) out.unshift(`La actualización diaria no corre desde ${hhmm(D.generated)}`);
+    for (const a of blk(D, "avisos") || []) out.push(a);
+    return out;
+  }
+
   function render() {
     try { $("#view").innerHTML = VIEWS[current](); }
     catch (e) { $("#view").innerHTML = `<div class="empty">Error al dibujar la pestaña: ${esc(e.message)}</div>`; console.error(e); }
     document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.v === current));
-    const stale = [...Object.entries(P), ...Object.entries(D)].filter(([k, v]) => v && v.stale).map(([k]) => k);
-    $("#status").innerHTML = `<span>Precios ${hhmm(P.generated)}</span><span>Diario ${hhmm(D.generated)}</span>${stale.length ? `<span class="bad" title="${esc(stale.join(", "))}">${stale.length} fuente(s) con dato viejo</span>` : ""}`;
+    const stale = [...Object.entries(P), ...Object.entries(D)].filter(([k, v]) => v && v.stale).map(([k]) => NOMBRES[k] || k);
+    const prob = problemas();
+    $("#status").innerHTML = `<span>Precios ${hhmm(P.generated)}</span><span>Diario ${hhmm(D.generated)}</span>`
+      + (prob.length ? `<button class="alerta" title="${esc(prob.join("\n"))}" aria-label="Datos desactualizados">! ${prob.length === 1 ? "1 dato desactualizado" : `${prob.length} datos desactualizados`}</button>`
+        : stale.length ? `<span class="bad" title="${esc(stale.join(", "))}">${stale.length} fuente(s) sin responder en la última corrida</span>` : "");
   }
 
   async function load() {
     if (window.__SAMPLE__) { P = window.__SAMPLE__.prices; D = window.__SAMPLE__.daily; $("#sample").hidden = false; return render(); }
+    // Los datos viven en la rama "datos" del repo (se reescribe en cada corrida). Si no responde, se usa la copia local.
+    const owner = location.hostname.split(".")[0], repo = location.pathname.split("/")[1];
+    const RAW = owner && repo && location.hostname.endsWith("github.io") ? `https://raw.githubusercontent.com/${owner}/${repo}/datos/` : null;
     const bust = `?t=${Date.now()}`;
-    const get = (u) => fetch(u + bust).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    [P, D] = await Promise.all([get("data/prices.json"), get("data/daily.json")]);
+    const getJ = (u) => fetch(u + bust).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const get = async (f) => (RAW && (await getJ(RAW + f))) || (await getJ("data/" + f)) || {};
+    [P, D] = await Promise.all([get("prices.json"), get("daily.json")]);
     render();
   }
 
@@ -517,6 +582,12 @@
       return dir === "asc" ? r : -r;
     });
     rows.forEach((r) => tb.appendChild(r));
+  });
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest(".alerta"); if (!b) return;
+    const box = $("#alertas");
+    if (box.hidden) { box.innerHTML = `<b>Datos desactualizados hace más de 2 días hábiles</b><ul>${problemas().map((x) => `<li>${esc(x)}</li>`).join("")}</ul><div class="note">Se siguen mostrando los últimos datos válidos. Cuando la fuente vuelva a responder, el aviso desaparece solo.</div>`; box.hidden = false; }
+    else box.hidden = true;
   });
   document.addEventListener("click", (e) => {
     const f = e.target.closest(".cal-f"); if (!f) return;
