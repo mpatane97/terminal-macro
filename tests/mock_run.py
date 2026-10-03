@@ -69,25 +69,36 @@ def series(n, lvl, step, fmt=lambda d: d.isoformat()):
 
 def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True, verify=True):
     p = params or {}
+    if "argentinadatos.com/v1/feriados" in url:
+        return [{"fecha": "2026-10-12", "tipo": "trasladable", "nombre": "Diversidad cultural"}, {"fecha": "2026-11-23", "tipo": "trasladable", "nombre": "Soberanía"}]
+    if "indec.gob.ar" in url or "fomccalendars" in url:
+        raise RuntimeError("sin red en la prueba")
+    if "rava.com/perfil/CAUCION" in url:
+        d = int(url.split("%20")[1].rstrip("D"))
+        class _H: text = f"<title>CAUCION {d}D Caución a {d} día{'s' if d > 1 else ''} $2{d % 5},10 (-1,50%) | Rava</title>"
+        return _H
     if "dolarapi" in url:
         v = {"oficial": 1545, "blue": 1560, "bolsa": 1557, "contadoconliqui": 1617.4, "cripto": 1612.3, "tarjeta": 2008.5, "mayorista": 1522}
         return [{"casa": k, "nombre": k, "compra": x - 20, "venta": x, "fechaActualizacion": "2026-10-01T16:40:00.000Z"} for k, x in v.items()]
     if "data912.com/live/arg_bonds" in url:
         base = {"AL29": 66, "GD29": 67, "AL30": 61.8, "GD30": 63.2, "AL35": 74.5, "GD35": 76.8, "AE38": 79.2, "GD38": 81.4,
-                "AL41": 70.1, "GD41": 72.3, "GD46": 74.9, "BPOA7": 104.0, "BPOB7": 104.1, "BPOC7": 104.15, "BPOD7": 104.2,
+                "AL41": 64.21, "GD41": 68.43, "GD46": 62.63, "AO27": 101.95, "AO28": 91.02, "AN29": 86.40, "AO29": 84.54, "BPOA7": 104.0, "BPOB7": 104.1, "BPOC7": 104.15, "BPOD7": 104.2,
                 "BPOA8": 91.0, "BPOB8": 91.3}
         rows = []
         for t, usd in base.items():
             rows.append({"symbol": t + "D", "c": usd, "pct_change": round(random.uniform(-1, 1), 2)})
             rows.append({"symbol": t, "c": round(usd * 1557, 0), "pct_change": round(random.uniform(-1, 1), 2)})
-        for t, pr in {"T15E7": 108.2, "T30J7": 112.5, "TX26": 640.0, "TZX27": 248.0, "TMF27": 101.2, "TTD26": 99.1}.items():
+        for t, pr in {"T15E7": 150.05, "T30J7": 128.6, "TX26": 751.3, "TX28": 1771.0, "TX31": 1444.0, "TZX27": 407.15, "TZX28": 354.65,
+                      "TZXD6": 308.9, "TZXD7": 282.5, "TZXM7": 228.95, "TZXO6": 174.93, "TZXS7": 109.95, "TMF27": 124.15, "TML27": 109.35}.items():
             rows.append({"symbol": t, "c": pr, "pct_change": round(random.uniform(-0.5, 0.5), 2)})
         return rows
     if "data912.com/live/arg_notes" in url:
         return [{"symbol": t, "c": pr, "pct_change": round(random.uniform(-0.3, 0.3), 2)}
-                for t, pr in {"S16O6": 101.3, "S30N6": 103.6, "S30D6": 102.1, "S29E7": 105.8, "S31M7": 101.0}.items()]
+                for t, pr in {"S16O6": 104.38, "S30O6": 133.15, "S13N6": 106.77, "S30N6": 125.19, "S29E7": 103.15, "T30A7": 135.45, "T31Y7": 127.34}.items()]
     if "data912.com/live/arg_stocks" in url:
-        return [{"symbol": t, "c": p, "pct_change": round(random.uniform(-3, 3), 2)} for t, p in {"GGAL": 6250, "YPFD": 41200, "PAMP": 3580}.items()]
+        return [{"symbol": t, "c": round(random.uniform(500, 9000), 1), "pct_change": round(random.uniform(-3, 3), 2)} for t in
+                ["ALUA", "BBAR", "BMA", "BYMA", "CEPU", "COME", "CRES", "EDN", "GGAL", "IRSA", "LOMA", "METR", "PAMP", "SUPV", "TECO2",
+                 "TGNO4", "TGSU2", "TRAN", "TXAR", "VALO", "YPFD"]]
     if "data912.com/live/arg_cedears" in url:
         return [{"symbol": t, "c": p, "pct_change": round(random.uniform(-2, 2), 2)} for t, p in {"SPY": 46800, "GOOGL": 9200, "NU": 16100, "NVDA": 10900, "MELI": 24500, "KO": 18900}.items()]
     if "data912.com/live/mep" in url:
@@ -126,15 +137,34 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
     if "prnewswire" in url:
         return Resp(text="Manufacturing PMI® at 49.6%; September 2026 ... Manufacturing PMI® at 48.7%; August 2026")
     if url.endswith("/Monetarias") and "bcra" in url:
-        vals = {1: 41850, 5: 1522.0, 78: 160, 44: 23.44, 7: 22.06, 12: 21.11, 27: 1.9, 28: 31.8, 29: 22.5, 30: 640.12, 31: 1595.4}
+        vals = {1: 47482, 5: 1523.2, 78: 160, 44: 23.44, 7: 22.06, 12: 21.11, 27: 1.9, 28: 31.8, 29: 22.5, 30: 847.76, 31: 2139.68}
         desc = {30: "CER - Coeficiente de Estabilización de Referencia", 31: "UVA - Unidad de Valor Adquisitivo"}
         return {"results": [{"idVariable": k, "descripcion": desc.get(k, f"Variable {k}"), "ultValorInformado": v, "ultFechaInformada": "2026-09-29"} for k, v in vals.items()]}
     if "bcra.gob.ar/estadisticas" in url:
         idv = int(url.rsplit("/", 1)[1])
-        lvl = {1: 41850, 5: 1522, 78: 100}.get(idv, 10)
+        lvl = {1: 47482, 5: 1522, 78: 100, 30: 841.6}.get(idv, 10)
+        if idv == 30:
+            return {"results": [{"idVariable": 30, "detalle": [{"fecha": (TODAY - timedelta(days=k)).isoformat(), "valor": 847.76 - 0.42 * k} for k in range(40)]}]}
         return {"results": [{"idVariable": idv, "detalle": [{"fecha": d, "valor": v} for d, v in series(380, lvl, lvl * 0.004)]}]}
     if "apis.datos.gob.ar" in url:
         return {"data": [["2026-07-01", 0.019, 0.33], ["2026-08-01", 0.0211, 0.318]]}
+    if "rem/ultimo" in url:
+        out = []
+        for i, (m, v) in enumerate([("2026-09", 1.8), ("2026-10", 1.7), ("2026-11", 1.6), ("2026-12", 1.8), ("2027-01", 1.6), ("2027-02", 1.6)]):
+            out.append({"informe": "2026-08", "muestra": "todos", "indicador": "Precios minoristas (IPC nivel general-Nacional; INDEC)",
+                        "periodoTipo": "mensual", "periodoDesde": m + "-01", "mediana": v})
+            out.append({"informe": "2026-08", "muestra": "todos", "indicador": "Tipo de cambio nominal", "periodoTipo": "mensual",
+                        "periodoDesde": m + "-01", "mediana": 1530 + 35 * i})
+        out.append({"informe": "2026-08", "muestra": "todos", "indicador": "Precios minoristas (IPC nivel general-Nacional; INDEC)",
+                    "periodoTipo": "proximos_12_meses", "periodo": "próx. 12 meses", "mediana": 21})
+        out.append({"informe": "2026-08", "muestra": "todos", "indicador": "Precios minoristas (IPC nivel general-Nacional; INDEC)",
+                    "periodoTipo": "anual", "periodo": "2027", "mediana": 20.5})
+        return out
+    if "fomccalendars" in url:
+        return Resp(text='<a href="/monetarypolicy/fomcprojtabl20260916.htm">Projection</a>')
+    if "fomcprojtabl" in url:
+        return Resp(text="<table><tr><th>Median</th><th>2026</th><th>2027</th><th>2028</th><th>2029</th><th>Longer run</th></tr>"
+                         "<tr><td>Change in real GDP</td><td>2.3</td></tr><tr><td>Federal funds rate</td><td>4.1</td><td>4.1</td><td>3.9</td><td>3.6</td><td>3.2</td></tr></table>")
     if "riesgo-pais" in url:
         return [{"fecha": d, "valor": round(v)} for d, v in series(400, 620, 8)]
     if "bandas-cambiarias" in url:
@@ -148,12 +178,16 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
         return [{"title": "ISM Manufacturing PMI", "country": "USD", "date": "2026-10-01T10:00:00-04:00", "impact": "High", "forecast": "49.2", "previous": "48.7"},
                 {"title": "Non-Farm Employment Change", "country": "USD", "date": "2026-10-02T08:30:00-04:00", "impact": "High", "forecast": "90K", "previous": "22K"},
                 {"title": "Unemployment Rate", "country": "USD", "date": "2026-10-02T08:30:00-04:00", "impact": "High", "forecast": "4.2%", "previous": "4.2%"},
+                {"title": "CPI Flash Estimate y/y", "country": "EUR", "date": "2026-10-02T05:00:00-04:00", "impact": "High", "forecast": "2.4%", "previous": "2.3%"},
+                {"title": "Caixin Services PMI", "country": "CNY", "date": "2026-10-03T21:45:00-04:00", "impact": "High", "forecast": "51.2", "previous": "50.9"},
                 {"title": "ISM Services PMI", "country": "USD", "date": "2026-10-03T10:00:00-04:00", "impact": "Medium", "forecast": "51.8", "previous": "52.0"}]
     if "finnhub" in url:
         return {"earningsCalendar": [{"date": "2026-10-13", "symbol": "JPM", "hour": "bmo", "epsEstimate": 4.85},
                                      {"date": "2026-10-14", "symbol": "JNJ", "hour": "bmo", "epsEstimate": 2.71},
                                      {"date": "2026-10-15", "symbol": "NFLX", "hour": "amc", "epsEstimate": 7.02},
-                                     {"date": "2026-10-14", "symbol": "XYZ", "hour": "amc", "epsEstimate": 1.0}]}
+                                     {"date": "2026-10-14", "symbol": "XYZ", "hour": "amc", "epsEstimate": 1.0},
+                                     {"date": "2026-10-28", "symbol": "MSFT", "hour": "amc", "epsEstimate": 3.9},
+                                     {"date": "2026-10-16", "symbol": "TSM", "hour": "bmo", "epsEstimate": 2.6}]}
     raise RuntimeError(f"sin mock para {url}")
 
 
@@ -183,13 +217,43 @@ for mod in (fetch_daily, fetch_prices):
     mod.DATA, mod.HIST = common.DATA, common.HIST
     mod.today_ar = lambda: TODAY
 fetch_daily.FRED_KEY = fetch_daily.FINNHUB_KEY = "x"
+import lecaps  # noqa: E402
+lecaps.HIST = common.HIST
+lecaps.ARCHIVO = common.HIST / "lecaps_terms.json"
+lecaps.http_get = fake_get
+lecaps.today_ar = lambda: TODAY
+lecaps.PAUSA = 0
+class _Resp:
+    def __init__(self, js): self._js = js
+    def raise_for_status(self): pass
+    def json(self): return self._js
+def fake_post(url, json=None, **kw):
+    # ficha simulada: TEM 2,30% emitida el 15/12/2025 (alcanza para probar el flujo)
+    return _Resp({"data": [{"denominacion": "LETRA DEL TESORO NACIONAL CAPITALIZABLE EN PESOS", "moneda": "Pesos",
+                            "interes": "Tasa efectiva mensual: 2,30 %", "fechaEmision": "2025-12-15", "fechaVencimiento": None}]})
+lecaps.requests.post = fake_post
+import indec, feriados  # noqa: E402,E401
+indec.http_get = fake_get
+indec.today_ar = lambda: TODAY
+feriados.http_get = fake_get
+feriados.HIST = common.HIST
+feriados.ARCHIVO = common.HIST / "feriados.json"
+feriados.today_ar = lambda: TODAY
+lecaps.ARCHIVO_CER = common.HIST / "cer_terms.json"
 fetch_prices.yf.download = fake_download
+class _FI:
+    market_cap = 1.5e12
+    currency = "USD"
+class _T:
+    def __init__(self, t): self.fast_info = _FI()
+import yfinance
+yfinance.Ticker = _T
 fetch_prices.feedparser.parse = fake_parse
 common.today_ar = lambda: TODAY
 
 OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
-    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "earnings"]})
-p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "news"]})
+    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos"]})
+p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 bad = {k: v["error"] for src in (d, p) for k, v in src.items() if isinstance(v, dict) and v.get("error")}
 print("errores:", json.dumps(bad, ensure_ascii=False, indent=1) if bad else "ninguno")
