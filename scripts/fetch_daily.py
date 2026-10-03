@@ -527,7 +527,8 @@ def cer_auto():
         return cand[-1] if cand else None
 
     manuales = {t: f["cer_inicial"] for t, f in BONOS.get("cer", {}).items()}
-    terms, resumen = lecaps.actualizar_cer(tickers, manuales, cer_en)
+    vtos = {t: (f.get("amortizacion") or {}).get("primera") for t, f in BONOS.get("cer", {}).items() if (f.get("amortizacion") or {}).get("primera")}
+    terms, resumen = lecaps.actualizar_cer(tickers, manuales, cer_en, vtos)
     resumen["automaticos"] = sorted(t for t, e in terms.items() if e.get("cer_inicial") and t not in manuales)
     return resumen, "BYMA ficha técnica + CER del BCRA"
 

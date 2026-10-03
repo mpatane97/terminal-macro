@@ -247,15 +247,24 @@ def clasificar_cer(f):
     return None
 
 
-def actualizar_cer(tickers, manuales, cer_en):
+def actualizar_cer(tickers, manuales, cer_en, vtos_manuales=None):
     """`cer_en(fecha)`: valor del CER publicado a esa fecha. El capital se ajusta por el CER de 10 días
     hábiles antes de la emisión (CER inicial), igual que en las condiciones de emisión del Tesoro."""
     import feriados
     terms = read_json(ARCHIVO_CER, {}) or {}
     hoy = today_ar()
+    # un mismo bono cotiza también en dólares o con otro plazo de liquidación (p. ej. TZX27 y TZX7D): se queda uno solo
+    usados = {v: t for t, v in (vtos_manuales or {}).items()}
+    for t in sorted(terms, key=lambda x: (x[-1] in "DC", x)):
+        e = terms[t]
+        if e.get("cer_inicial") and e.get("vto"):
+            if e["vto"] in usados and usados[e["vto"]] != t:
+                terms[t] = {"descartado": f"otra especie de {usados[e['vto']]}", "denominacion": e.get("denominacion")}
+            else:
+                usados[e["vto"]] = t
     pendientes = [t for t in sorted(set(tickers)) if PATRON_CER.match(t)
                   and not (terms.get(t, {}).get("cer_inicial") or terms.get(t, {}).get("descartado"))]
-    pendientes.sort(key=lambda t: t in manuales)
+    pendientes.sort(key=lambda t: (t in manuales, t[-1] in "DC"))
     nuevas, controles, sin_resolver = [], [], []
     for t in pendientes[:MAX_FICHAS]:
         try:
@@ -267,13 +276,16 @@ def actualizar_cer(tickers, manuales, cer_en):
         if not f:
             sin_resolver.append(t)
             continue
-        motivo = clasificar_cer(f)
+        motivo = clasificar_cer(f) or (None if (f.get("moneda") or "").lower() in ("pesos", "ars", "$") else f"moneda {f.get('moneda')}")
         if motivo:
             terms[t] = {"descartado": motivo, "denominacion": f.get("denominacion")}
             continue
         emision, vto = _fecha(f.get("fechaEmision")), _fecha(f.get("fechaVencimiento"))
         if not emision or not vto or vto <= hoy:
             sin_resolver.append(t)
+            continue
+        if vto.isoformat() in usados and usados[vto.isoformat()] != t:
+            terms[t] = {"descartado": f"otra especie de {usados[vto.isoformat()]}", "denominacion": f.get("denominacion")}
             continue
         ref = feriados.sumar_habiles(emision, -10)
         try:
@@ -284,6 +296,7 @@ def actualizar_cer(tickers, manuales, cer_en):
         if not ci:
             sin_resolver.append(t)
             continue
+        usados[vto.isoformat()] = t
         terms[t] = {"cer_inicial": ci, "emision": emision.isoformat(), "vto": vto.isoformat(),
                     "fecha_cer": ref.isoformat(), "denominacion": f.get("denominacion"), "alta": hoy.isoformat()}
         if t in manuales:

@@ -264,7 +264,7 @@ def _cer_tamar(px, settle, a):
             if p and cer_t10:
                 coef = cer_t10 / fam["cer_inicial"]
                 m = bonds.bond_metrics(fl, p / coef, settle)
-                if m:
+                if m and -50 < (m.get("tir") or 0) < 100:  # una TIR absurda indica un precio de otra especie
                     row.update({"tir": m["tir"], "dur_mod": m["dur_mod"], "coef_cer": coef,
                                 "dias_vto": m["dias_vto"], "dias_prox": m["dias_prox"]})
         out.append(row)

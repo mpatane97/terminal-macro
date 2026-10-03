@@ -29,10 +29,53 @@ def _url(anio, sem):
     return f"https://www.indec.gob.ar/ftp/cuadros/publicaciones/calendario_{sem}sem{anio}.pdf"
 
 
+def _columnas(page):
+    """El PDF puede tener dos meses lado a lado. Se detectan las columnas por la posición horizontal
+    de los números de día seguidos del día de la semana ("13 MA") y se lee cada columna por separado."""
+    palabras = page.extract_words(keep_blank_chars=False)
+    xs = []
+    for a, b in zip(palabras, palabras[1:]):
+        if re.fullmatch(r"\d{1,2}", a["text"]) and re.fullmatch(DIAS, b["text"]) and abs(a["top"] - b["top"]) < 3:
+            xs.append(a["x0"])
+    if not xs:
+        return [page]
+    xs.sort()
+    inicios = [xs[0]]
+    for x in xs[1:]:
+        if x - inicios[-1] > page.width * 0.25:
+            inicios.append(x)
+    if len(inicios) == 1:
+        return [page]
+    bordes = [max(0, x - 4) for x in inicios] + [page.width]
+    return [page.crop((bordes[i], 0, bordes[i + 1], page.height)) for i in range(len(inicios))]
+
+
 def _texto_pdf(contenido):
     import pdfplumber
+    partes = []
     with pdfplumber.open(io.BytesIO(contenido)) as pdf:
-        return "\n".join((p.extract_text() or "") for p in pdf.pages)
+        for page in pdf.pages:
+            for col in _columnas(page):
+                partes.append(col.extract_text() or "")
+    return "\n".join(partes)
+
+
+# desfase normal entre el mes de publicación y el período que informa (para descartar lecturas raras)
+DESFASE = {"IPC": (1,), "EMAE": (2,), "Balanza comercial": (1,), "Salarios": (2,)}
+MES_NUM = {**MESES}
+
+
+def _plausible(e):
+    corto = e["evento"].split(" (")[0]
+    if corto.startswith(("PBI trimestral", "Desempleo", "Pobreza")):
+        return "trimestre" in corto or "semestre" in corto
+    for k, des in DESFASE.items():
+        if corto.startswith(k + " "):
+            mes_txt = corto[len(k) + 1:].split(" ")[0].lower()
+            if mes_txt in MES_NUM:
+                pub = int(e["fecha"][5:7])
+                return ((pub - MES_NUM[mes_txt]) % 12) in des
+    return True
 
 
 def parsear(texto, anio):
@@ -87,7 +130,13 @@ def calendario():
     for anio, s in pedidos:
         try:
             r = http_get(_url(anio, s), as_json=False, timeout=30)
-            ev = parsear(_texto_pdf(r.content), anio)
+            texto = _texto_pdf(r.content)
+            try:  # copia del texto leído, para poder revisar el formato si algo no cierra
+                from common import HIST
+                (HIST / f"indec_{anio}_{s}.txt").write_text(texto, encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                pass
+            ev = [e for e in parsear(texto, anio) if _plausible(e)]
             eventos += ev
             leidos.append(f"{s}º semestre {anio} ({len(ev)} eventos)")
         except Exception as e:  # noqa: BLE001
