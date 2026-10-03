@@ -17,8 +17,23 @@ jobs:
   actualizar:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATA_DIR: _datos
     steps:
       - uses: actions/checkout@v4
+      # Los datos viven en la rama "datos", que se reescribe en cada corrida con un único commit:
+      # así el repositorio no crece con cada actualización.
+      - name: Traer los datos actuales (rama datos)
+        uses: actions/checkout@v4
+        with:
+          ref: datos
+          path: _datos
+        continue-on-error: true
+      - name: "Primera vez: arrancar desde docs/data"
+        run: |
+          if [ ! -f _datos/prices.json ] && [ ! -f _datos/daily.json ]; then
+            rm -rf _datos && mkdir -p _datos && cp -r docs/data/. _datos/
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -29,11 +44,15 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: python scripts/fetch_prices.py
-      - name: Guardar datos en el repositorio
+      - name: Publicar en la rama datos (un solo commit, sin historia)
+        env:
+          TOKEN: ${{ github.token }}
         run: |
+          cd _datos
+          rm -rf .git
+          git init -q -b datos
           git config user.name "terminal-bot"
           git config user.email "terminal-bot@users.noreply.github.com"
-          git add docs/data
-          git diff --cached --quiet && exit 0
-          git commit -m "datos: prices $(date -u +%Y-%m-%dT%H:%MZ)"
-          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done
+          git add -A
+          git commit -q -m "datos: precios $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" datos
