@@ -204,9 +204,12 @@ def actualizar(tickers, manuales):
         emision = _fecha(f.get("fechaEmision"))
         vto_f = _fecha(f.get("fechaVencimiento")) or vto
         tem, fuente = tem_de_ficha(f), "BYMA ficha técnica"
-        if tem is None:
-            tem, url = tem_de_licitacion(vto_f)
-            fuente = f"Finanzas, resultado de licitación ({url})" if tem else None
+        # BYMA a veces redondea la TEM a un decimal (2,4% en vez de 2,42%): eso solo mueve el pago final
+        # ~0,4%. Si viene con menos de dos decimales se prefiere la de la licitación, que se verifica sola.
+        if tem is None or abs(tem * 1000 - round(tem * 1000)) < 1e-9:
+            tem_l, url = tem_de_licitacion(vto_f)
+            if tem_l:
+                tem, fuente = tem_l, f"Finanzas, resultado de licitación ({url})"
         if tem is None or not emision:
             sin_resolver.append(t)
             terms[t] = {"emision": emision.isoformat() if emision else None, "vto": vto_f.isoformat(),
