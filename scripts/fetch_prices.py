@@ -288,6 +288,40 @@ def _kalshi_price(m):
     return last
 
 
+# ---------- Cauciones en pesos (1, 7 y 14 días) ----------
+
+PLAZOS_CAUCION = (1, 7, 14)
+
+
+def _caucion_rava(dias):
+    """La página pública de Rava publica la TNA de cada plazo en el título:
+    'CAUCION 7D Caución a 7 días $19,10 (-3,50%)'. Es la fuente principal: se lee sólo ese dato."""
+    html = http_get(f"https://www.rava.com/perfil/CAUCION%20{dias}D", as_json=False, timeout=20).text
+    m = re.search(r"<title>[^<]*?Cauci[oó]n a\s+(\d+)\s+d[ií]as?\s*\$?\s*([\d.,]+)\s*\((-?[\d.,]+)%\)", html, re.I)
+    if not m or int(m.group(1)) != dias:
+        raise RuntimeError(f"no se encontró la tasa de {dias} días en Rava")
+    tna = float(m.group(2).replace(".", "").replace(",", "."))
+    var = float(m.group(3).replace(".", "").replace(",", "."))
+    return tna, var
+
+
+def cauciones():
+    out = []
+    for d in PLAZOS_CAUCION:
+        try:
+            tna, var = _caucion_rava(d)
+        except Exception as e:  # noqa: BLE001
+            log.warning("caución %sd: %s", d, e)
+            continue
+        prev = tna / (1 + var / 100) if var > -100 else None
+        out.append({"plazo": d, "tna": tna, "d_pb": (tna - prev) * 100 if prev else None,
+                    "tem": ((1 + tna / 100 * d / 365) ** (30 / d) - 1) * 100,
+                    "tea": ((1 + tna / 100 * d / 365) ** (365 / d) - 1) * 100})
+    if not out:
+        raise RuntimeError("sin datos de cauciones")
+    return out, "Rava Bursátil (tasas de BYMA, secundaria)"
+
+
 def fed_probs():
     url = "https://api.elections.kalshi.com/trade-api/v2/events"
     js = http_get(url, params={"series_ticker": "KXFED", "status": "open", "with_nested_markets": "true", "limit": 10})
@@ -367,6 +401,7 @@ if __name__ == "__main__":
         "dolares": dolares,
         "ar_market": ar_market,
         "fed_probs": fed_probs,
+        "cauciones": cauciones,
         "news": news,
     })
     log.info("prices.json actualizado %s", now_iso())
