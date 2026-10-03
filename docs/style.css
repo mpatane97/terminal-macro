@@ -128,10 +128,28 @@ nav.tabs button { padding: 5px 9px; }
 .lectura { margin: 0; padding: 8px 14px 4px 30px; display: grid; gap: 6px; font-size: 14px; line-height: 1.45; max-width: 110ch; }
 .lectura li::marker { color: var(--accent); }
 /* Qué se movió hoy */
-.movers .mv-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; padding-bottom: 6px; }
+.movers .mv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; padding-bottom: 6px; }
 @media (max-width: 900px) { .movers .mv-grid { grid-template-columns: minmax(0, 1fr); } }
 .mv { margin: 0; padding: 0; }
 .mv li { list-style: none; display: flex; justify-content: space-between; gap: 10px; padding: 4px 12px; font-variant-numeric: tabular-nums;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
 .mv li > span:last-child { font-family: var(--font-num); font-size: 13px; }
 .mv .sub { color: var(--muted); font-size: 11px; margin-left: 8px; }
+/* Calendario unificado: un color por tipo de evento */
+.cat-us { --c: #6c9bd2; } .cat-fed { --c: #b48cf0; } .cat-ar { --c: #5ec4e8; }
+.cat-bc { --c: #4fc1a6; } .cat-intl { --c: #d9b44a; } .cat-earn { --c: #e88ab0; }
+.cal-filtros { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px 4px; }
+.cal-f { font: 500 12px var(--font-ui); color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 12px; padding: 3px 10px; cursor: pointer; }
+.cal-f i, .cal .tag i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); margin-right: 6px; vertical-align: middle; }
+.cal-f span { color: var(--muted); margin-left: 4px; font-family: var(--font-num); }
+.cal-f[aria-pressed="false"] { opacity: .4; }
+.cal-f[aria-pressed="false"] i { background: transparent; border: 1px solid var(--c); }
+h3.cal-dia { padding-top: 14px; text-transform: capitalize; color: var(--fg); }
+.cal { margin: 0; padding: 0; }
+.cal li { list-style: none; display: grid; grid-template-columns: 46px 160px minmax(0, 1fr) minmax(0, auto); gap: 12px; align-items: baseline;
+  padding: 5px 12px; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); border-left: 3px solid var(--c); }
+.cal .t { font: 12px var(--font-num); color: var(--muted); }
+.cal .tag { font-size: 12px; color: var(--c); white-space: nowrap; }
+.cal .e.alto { font-weight: 600; }
+.cal .d { font: 12px var(--font-num); color: var(--muted); text-align: right; }
+@media (max-width: 720px) { .cal li { grid-template-columns: 44px minmax(0, 1fr); } .cal .tag { grid-column: 2; } .cal .e, .cal .d { grid-column: 2; text-align: left; } }

@@ -6,6 +6,8 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const cls = (v) => (v === null || v === undefined ? "na" : v > 0.0001 ? "up" : v < -0.0001 ? "down" : "flat");
   const chg = (v, d = 2, suf = "%") => (v === null || v === undefined ? `<span class="na">—</span>` : `<span class="${cls(v)}">${v > 0 ? "+" : ""}${fmt(v, d)}${suf}</span>`);
+  // para indicadores donde subir es malo (riesgo país): mismo número, colores invertidos
+  const chgInv = (v, d = 2, suf = "%") => chg(v, d, suf).replace(/class="(up|down)"/, (m, c) => `class="${c === "up" ? "down" : "up"}"`);
   const dec = (v) => (v === null || v === undefined ? 2 : Math.abs(v) >= 1000 ? 0 : Math.abs(v) >= 100 ? 1 : Math.abs(v) >= 10 ? 2 : 3);
   const hhmm = (iso) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }); };
   const dmy = (iso) => { if (!iso) return "—"; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}/${m}/${y.slice(2)}`; };
@@ -62,7 +64,7 @@
         g += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${fitPts.join(" ")}"/>`;
       }
       if (s.line && ps.length > 1) g += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1 : 2}" ${s.ghost ? 'stroke-dasharray="4 4"' : ""} points="${ps.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}"/>`;
-      g += ps.map((p) => `<circle class="${s.cls}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${s.ghost ? 2.5 : 3.5}"><title>${esc(p.label || "")} ${fmt(p.y, 2)}%</title></circle>${p.label && !s.ghost ? `<text class="lbl" x="${X(p.x) + 5}" y="${Y(p.y) + (si % 2 ? 15 : -7)}">${esc(p.label)}</text>` : ""}`).join("");
+      if (!s.nodots) g += ps.map((p) => `<circle class="${s.cls}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${s.ghost ? 2.5 : 3.5}"><title>${esc(p.label || "")} ${fmt(p.y, o.tdec ?? 2)}${o.ysuf ?? "%"}</title></circle>${p.label && !s.ghost && !s.nolabel ? `<text class="lbl" x="${X(p.x) + 5}" y="${Y(p.y) + (si % 2 ? 15 : -7)}">${esc(p.label)}</text>` : ""}`).join("");
     });
     const leg = series.length > 1 ? `<div class="legend">${series.map((s) => `<span><i class="${s.cls}" style="background:currentColor"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
     return `${leg}<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || "curva")}">${g}</svg></div>`;
@@ -107,12 +109,10 @@
     if (!all.length) return "";
     const ord = [...all].sort((a, b) => b.d - a.d);
     const li = (r) => `<li><span>${esc(r.nombre)}<span class="sub">${esc(r.tipo)}</span></span>${chg(r.d)}</li>`;
-    const hoy = upcoming().filter((e) => new Date(e.t).toDateString() === new Date().toDateString());
     const nUp = all.filter((r) => r.d > 0).length;
     return `<section class="panel lead movers"><h2>Qué se movió hoy <span class="src">${all.length} activos · ${nUp} suben, ${all.length - nUp} bajan o sin cambio</span></h2>
       <div class="mv-grid"><div><h3>Mayores subas</h3><ul class="mv">${ord.slice(0, 6).map(li).join("")}</ul></div>
-      <div><h3>Mayores bajas</h3><ul class="mv">${ord.slice(-6).reverse().map(li).join("")}</ul></div>
-      <div><h3>Agenda de hoy</h3>${hoy.length ? eventsList(hoy) : `<div class="empty">Sin datos ni decisiones importantes hoy.</div>`}</div></div></section>`;
+      <div><h3>Mayores bajas</h3><ul class="mv">${ord.slice(-6).reverse().map(li).join("")}</ul></div></div></section>`;
   }
 
   function viewResumen() {
@@ -140,7 +140,7 @@
     const arm = blk(P, "ar_market") || {}, sob = arm.soberanos || [];
     const a3500 = byId(cot, "mayorista").venta;
     const ar = table(head, ["mayorista", "bolsa", "contadoconliqui"].map((id) => { const r = byId(cot, id); return [esc(r.nombre || id), fmt(r.venta, 2), chg(r.d), chg(r.m)]; })
-      .concat([["Riesgo país", fmt(rp.last, 0), chg(rp.d_pb, 0, " pb"), chg(rp.m)]])
+      .concat([["Riesgo país", fmt(rp.last, 0), chgInv(rp.d_pb, 0, " pb"), chgInv(rp.m)]])
       .concat(priceRows(pick(["MERVAL"]), cols)))
       + `<h3>Brechas y banda</h3><dl class="kv"><dt>CCL / A3500</dt><dd>${fmt(br.ccl_a3500, 1)}%</dd><dt>MEP / A3500</dt><dd>${fmt(br.mep_a3500, 1)}%</dd><dt>CCL / MEP</dt><dd>${fmt(br.ccl_mep, 1)}%</dd>
          <dt>Techo de banda</dt><dd>${ban ? fmt(ban.techo, 2) : "—"}</dd><dt>Distancia al techo</dt><dd>${ban && a3500 ? fmt((ban.techo / a3500 - 1) * 100, 1) + "%" : "—"}</dd></dl>`
@@ -149,8 +149,8 @@
 
     const gl = table(head, priceRows(pick(["DXY", "EURUSD", "USDBRL", "SX5E", "N225", "BVSP", "WTI", "BRENT", "ORO", "PLATA", "SOJA", "TRIGO", "MAIZ", "BTC"]), cols));
 
-    return `${movers()}<div class="cols-3">${panel("EE.UU. y Fed", us, { lead: true, meta: meta(P, "markets") })}${panel("Argentina", ar, { meta: meta(P, "dolares") })}${panel("Global y commodities", gl, { meta: meta(P, "markets") })}</div>
-      <div class="cols-2">${panel("Próximos eventos", eventsList(upcoming().slice(0, 5)), { src: "" })}${panel("Titulares", newsList(mergedNews().slice(0, 5)), { meta: meta(P, "news") })}</div>`;
+    return `<div class="cols-3">${panel("EE.UU. y Fed", us, { lead: true, meta: meta(P, "markets") })}${panel("Argentina", ar, { meta: meta(P, "dolares") })}${panel("Global y commodities", gl, { meta: meta(P, "markets") })}</div>
+      ${movers()}<div class="cols-2">${panel("Próximos eventos", eventsList(upcoming().slice(0, 5)), { src: "" })}${panel("Titulares", newsList(mergedNews().slice(0, 5)), { meta: meta(P, "news") })}</div>`;
   }
 
   const chip = (estado, txt) => `<span class="chip ${estado}">${txt}</span>`;
@@ -193,8 +193,8 @@
       + `<div class="note">Mercado: Kalshi (diciembre) y Treasury 2 años. Fed: mediana del dot plot y punto medio del rango.</div>`;
     const realT = table(["", "Tasa real"], [["Fed funds − CPI", realCpi != null ? chg(realCpi, 2) : "—"], ["Fed funds − Core PCE", realPce != null ? chg(realPce, 2) : "—"]])
       + `<div class="note">Positiva: la política frena la economía. Negativa: la estimula.</div>`;
-    return `${panel("Lectura del momento", lect, { lead: true, src: "" })}
-      <div class="cols-2">${panel("Semáforo de señales", semT, { src: "" })}<div class="view">${panel("Mercado vs. Fed", mvfT, { src: "" })}${panel("Tasa real", realT, { src: "" })}</div></div>`;
+    return { lect: panel("Lectura del momento", lect, { lead: true, src: "" }), sem: panel("Semáforo de señales", semT, { src: "" }),
+      mvf: panel("Mercado vs. Fed", mvfT, { src: "" }), real: panel("Tasa real", realT, { src: "" }) };
   }
 
   function viewEEUU() {
@@ -216,10 +216,14 @@
     const macroHtml = table(["Indicador", "Período", "Último", "Anterior", "Próximo"], macro.map((r) => [
       `${esc(r.nombre)}<span class="sub">${esc(r.tema)}</span>`, esc(r.periodo || "—"),
       `${fmt(r.valor, r.unidad === "miles" ? 0 : 1)}<span class="sub">${esc(r.unidad)}</span>`, fmt(r.anterior, r.unidad === "miles" ? 0 : 1), dmy(r.proximo)]));
-    return `${lecturaEEUU()}<div class="cols-2">${panel("Fed", fedHtml, { meta: meta(D, "fed") })}${panel("Treasuries", tsyHtml, { meta: meta(D, "treasuries") })}</div>
+    const L = lecturaEEUU();
+    return `${L.lect}<div class="cols-2"><div class="view">${L.sem}${panel("Fed", fedHtml, { meta: meta(D, "fed") })}${L.real}</div>
+      <div class="view">${panel("Treasuries", tsyHtml, { meta: meta(D, "treasuries") })}${L.mvf}</div></div>
       ${panel("Macro EE.UU.", macroHtml, { meta: meta(D, "us_macro") })}`;
   }
 
+  // rendimiento relativo: cuánto le ganó (o perdió) un activo a su referencia en el mismo período
+  const rel = (a, b) => (a == null || b == null ? null : ((1 + a / 100) / (1 + b / 100) - 1) * 100);
   const pct = (v, d = 2) => (v === null || v === undefined ? "—" : fmt(v, d) + "%");
   const merv = () => ((blk(P, "markets") || {}).argentina || [])[0] || {};
 
@@ -231,7 +235,9 @@
     const dolHtml = table(["", "Compra", "Venta", "Día", "Sem", "Mes", "Año"], cot.filter((r) => r.id !== "oficial").map((r) => [esc(r.nombre), fmt(r.compra, 2), fmt(r.venta, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y)]))
       + `<h3>Brechas y banda</h3><dl class="kv"><dt>CCL / A3500</dt><dd>${pct(br.ccl_a3500, 1)}</dd><dt>MEP / A3500</dt><dd>${pct(br.mep_a3500, 1)}</dd><dt>CCL / MEP</dt><dd>${pct(br.ccl_mep, 1)}</dd>
         <dt>Piso / techo ${ban ? `(${dmy(ban.fecha)})` : ""}</dt><dd>${ban ? `${fmt(ban.piso, 2)} / ${fmt(ban.techo, 2)}` : "—"}</dd><dt>Distancia del A3500 al techo</dt><dd>${ban && a3500 ? pct((ban.techo / a3500 - 1) * 100, 1) : "—"}</dd></dl>`;
-    const riesgoHtml = `<dl class="kv"><dt>Riesgo país (${dmy(rp.date)})</dt><dd>${fmt(rp.last, 0)} pb · ${chg(rp.d_pb, 0, " pb")}</dd><dt>Variación mensual</dt><dd>${chg(rp.m)}</dd></dl>`;
+    const riesgoHtml = `<dl class="kv"><dt>Riesgo país (${dmy(rp.date)})</dt><dd>${fmt(rp.last, 0)} pb</dd><dt>Variación diaria</dt><dd>${chgInv(rp.d_pb, 0, " pb")} · ${chgInv(rp.d)}</dd>
+      <dt>Variación semanal</dt><dd>${chgInv(rp.w)}</dd><dt>Variación mensual</dt><dd>${chgInv(rp.m)}</dd><dt>Variación anual</dt><dd>${chgInv(rp.y)}</dd></dl>
+      <div class="note">Colores invertidos: verde = baja el riesgo país.</div>`;
     const bcraHtml = `<dl class="kv"><dt>Reservas brutas (${dmy(bc.reservas?.fecha)})</dt><dd>US$ ${fmt(bc.reservas?.valor, 0)} M · ${chg(bc.reservas?.m)} mes</dd>
       <dt>Compras del BCRA (${dmy(bc.compras?.fecha)})</dt><dd>US$ ${fmt(bc.compras?.valor, 0)} M</dd>
       <dt>Compras acumuladas en el mes</dt><dd>US$ ${fmt(bc.compras?.mes_acum, 0)} M</dd><dt>Compras acumuladas en el año</dt><dd>US$ ${fmt(bc.compras?.anio_acum, 0)} M</dd></dl>`;
@@ -241,9 +247,8 @@
       + `<h3>Inflación esperada · REM ${esc(rem.informe || "")}</h3>` + table(["", ...(rem.ipc_mensual || []).map((r) => r.mes.slice(5, 7) + "/" + r.mes.slice(2, 4)), "12 meses"],
         rem.ipc_mensual ? [["IPC mensual (mediana)", ...rem.ipc_mensual.map((r) => pct(r.mediana, 1)), pct(rem.ipc_12m, 1)]] : [])
       + ((rem.tipo_cambio || []).length ? table(["", ...rem.tipo_cambio.map((r) => r.mes.slice(5, 7) + "/" + r.mes.slice(2, 4))], [["Dólar mayorista esperado", ...rem.tipo_cambio.map((r) => fmt(r.mediana, 0))]]) : "");
-    return `<div class="cols-2">${panel("Dólares", dolHtml, { lead: true, meta: meta(P, "dolares") })}
-      <div class="view">${panel("Riesgo país", riesgoHtml, { meta: meta(D, "riesgo_pais") })}${panel("BCRA", bcraHtml, { meta: meta(D, "ar_bcra") })}${panel("Tasas de referencia", tasasHtml, { meta: meta(D, "ar_bcra") })}</div></div>
-      ${panel("Inflación y actividad", actHtml, { meta: meta(D, "rem") })}`;
+    return `<div class="cols-2"><div class="view">${panel("Dólares", dolHtml, { lead: true, meta: meta(P, "dolares") })}${panel("Riesgo país", riesgoHtml, { meta: meta(D, "riesgo_pais") })}</div>
+      <div class="view">${panel("BCRA", bcraHtml, { meta: meta(D, "ar_bcra") })}${panel("Tasas de referencia", tasasHtml, { meta: meta(D, "ar_bcra") })}${panel("Inflación y actividad", actHtml, { meta: meta(D, "rem") })}</div></div>`;
   }
 
   // Tabla estilo bonistas para bonos en dólares
@@ -299,14 +304,24 @@
     const eqRows = a35 ? pf.filter((r) => r.pago_final && r.dias > 0).map((r) => {
       const eq = a35 * r.pago_final / r.precio, te = techoAl(r.dias);
       const vsTecho = te ? (eq / te - 1) * 100 : null;
-      return [r.ticker, dmy(r.vto), r.dias, pct(r.tem), `<b>${fmt(eq, 0)}</b>`, chg((eq / a35 - 1) * 100, 1), te ? fmt(te, 0) : "—",
+      return [r.ticker, dmy(r.vto), r.dias, `<b>${fmt(eq, 0)}</b>`, chg((eq / a35 - 1) * 100, 1), te ? fmt(te, 0) : "—",
         vsTecho == null ? "—" : `<span class="${vsTecho > 0 ? "up" : "flat"}">${fmt(vsTecho, 1)}%</span>`];
     }) : [];
-    const eqT = panel("Dólar de equilibrio (carry trade)", table(["Letra", "Vto.", "Días", "TEM", "Dólar equilibrio", "Suba que tolera", "Techo banda est.", "Equilibrio vs. techo"], eqRows)
+    const eqT = panel("Dólar de equilibrio (carry trade)", table(["Letra", "Vto.", "Días", "Dólar equil.", "Suba que tolera", "Techo est.", "Equil. vs. techo"], eqRows)
       + `<div class="note">Dólar mayorista al vencimiento que deja igual invertir en la letra que comprar dólares hoy (A3500 ${fmt(a35, 2)} × pago final ÷ precio). Si al vencimiento el dólar queda por debajo, la letra le ganó al dólar. Techo de banda estimado: el de hoy ajustado por la última inflación mensual (${pct(ipm, 1)}), según la regla vigente. Equilibrio vs. techo negativo = si el dólar llegara al techo, la letra perdería contra el dólar; en verde, gana igual.</div>`, { meta: m });
+    // curva del dólar de equilibrio contra la banda cambiaria proyectada
+    const pfEq = a35 ? pf.filter((r) => r.pago_final && r.dias > 0) : [];
+    const maxD = Math.max(30, ...pfEq.map((r) => r.dias));
+    const pasos = Array.from({ length: 13 }, (_, k) => Math.round(maxD * k / 12));
+    const eqCurva = panel("Dólar de equilibrio vs. banda cambiaria", curve([
+        { name: "Dólar de equilibrio por letra", cls: "s1", fit: true, points: pfEq.map((r) => ({ x: r.dias, y: a35 * r.pago_final / r.precio, label: r.ticker })) },
+        { name: "Techo de la banda (estimado)", cls: "s2", line: true, nodots: true, points: pasos.map((d) => ({ x: d, y: techoAl(d), label: "Techo" })) },
+        { name: "Mayorista hoy", cls: "ghost", line: true, ghost: true, points: [{ x: 0, y: a35 }, { x: maxD, y: a35 }] }],
+        { xmin: 0, xlabel: "Días al vencimiento", ylabel: "$ por US$", ydec: 0, tdec: 0, ysuf: "", title: "Dólar de equilibrio vs. banda" })
+      + `<div class="note">Si el dólar termina por debajo de la curva naranja, la letra le gana al dólar. Piso de la banda hoy: ${ban ? fmt(ban.piso, 0) : "—"} (fuera de escala; baja con la misma regla).</div>`, { src: "" });
     const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d)])), { meta: m });
     return `${ref}<div class="cols-split"><div class="view">${fija}</div><div class="sticky">${fijaCurva}</div></div>
-      ${eqT}
+      <div class="cols-split"><div class="view">${eqT}</div><div class="sticky">${eqCurva}</div></div>
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
       <div class="cols-split"><div class="view">${beT}</div><div>${tam}</div></div>`;
   }
@@ -317,25 +332,36 @@
     const m = meta(P, "ar_market");
     const head = `<div class="strip"><span><b>Merval</b> ${fmt(mv.last, 0)} ${chg(mv.d)}</span><span><b>Merval en USD (CCL)</b> ${mv.last && ccl ? fmt(mv.last / ccl, 0) : "—"}</span>
       <span><b>Mes</b> ${chg(mv.m)}</span><span><b>Año</b> ${chg(mv.y)}</span></div>`;
-    const panelT = panel("Panel líder", table(["Ticker", "Precio", "Día", "Sem", "Mes"], (arm.panel_lider || []).map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m)])), { lead: true, meta: m });
+    const pl = arm.panel_lider || [], secs = arm.sectores || {};
+    const secDe = (t) => Object.keys(secs).find((k) => secs[k].includes(t));
+    // referencia de sector: promedio de los demás papeles del mismo sector (sin contar al propio)
+    const promSector = (t, k) => { const s = secDe(t); if (!s || s === "Otros") return null; const v = pl.filter((r) => r.ticker !== t && secs[s].includes(r.ticker) && r[k] != null).map((r) => r[k]); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const panelT = panel("Panel líder", table(["Ticker", "Sector", "Precio", "Día", "Sem", "Mes", "Año", "vs. Merval (mes)", "vs. sector (mes)", "vs. Merval (año)"],
+        pl.map((r) => [r.ticker, `<span class="na">${esc(secDe(r.ticker) || "—")}</span>`, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y),
+          chg(rel(r.m, mv.m)), chg(rel(r.m, promSector(r.ticker, "m"))), chg(rel(r.y, mv.y))]), [1])
+      + `<div class="note">"vs." = cuánto le ganó (verde) o perdió (rojo) cada acción a su referencia en el período, en pesos. Sector: promedio simple de los otros papeles del panel del mismo sector.</div>`, { lead: true, meta: m });
     const adrs = panel("ADRs en Nueva York", table(["", "USD", "Día", "Sem", "Mes", "Año"], priceRows(mk.adrs, ["d", "w", "m", "y"])), { meta: meta(P, "markets") });
     const ced = panel("CEDEARs", table(["Ticker", "Precio", "Día", "Mes", "MEP implícito", "CCL implícito"], (arm.cedears || []).map((r) => [r.ticker, fmt(r.precio, 2), chg(r.d), chg(r.m), fmt(r.mep, 2), fmt(r.ccl, 2)])), { meta: m });
-    return `${head}<div class="cols-2">${panelT}<div class="view">${adrs}${ced}</div></div>`;
+    return `${head}${panelT}<div class="cols-2">${adrs}${ced}</div>`;
   }
 
   function viewEmpresas() {
     const mk = blk(P, "markets") || {}, cap = blk(D, "megacaps_info") || {}, earn = blk(D, "earnings") || [];
     const cm = (blk(P, "ar_market") || {}).cedears_mega || {};
     const prox = (id) => { const e = earn.filter((r) => r.ticker === id).sort((a, b) => (a.fecha < b.fecha ? -1 : 1))[0]; return e ? dmy(e.fecha) : "—"; };
+    const spx = (mk.indices_eeuu || []).find((x) => x.id === "SPX") || {};
+    const secs = Object.fromEntries((mk.sectores || []).map((x) => [x.id, x]));
     const rows = (arr) => [...(arr || [])].sort((a, b) => (cap[b.id] ?? 0) - (cap[a.id] ?? 0)).map((r) => {
+      const sx = secs[r.sector] || {};
       const c = r.cedear ? cm[r.cedear] : null;
-      return [`${esc(r.nombre)}<span class="sub">${esc(r.id)}</span>`, cap[r.id] != null ? fmt(cap[r.id], 0) : "—", fmt(r.last, 2), chg(r.d), chg(r.m), chg(r.y), chg(r.dd52, 1), prox(r.id),
+      return [`${esc(r.nombre)}<span class="sub">${esc(r.id)}</span>`, cap[r.id] != null ? fmt(cap[r.id], 0) : "—", fmt(r.last, 2), chg(r.d), chg(r.m), chg(r.y),
+        chg(rel(r.m, spx.m)), chg(rel(r.y, spx.y)), `${chg(rel(r.y, sx.y))}<span class="sub" title="${esc(sx.nombre || "")}">${esc(sx.id || "")}</span>`, chg(r.dd52, 1), prox(r.id),
         c ? `${fmt(c.ccl, 0)}` : (r.cedear ? "—" : `<span class="na">sin CEDEAR</span>`)];
     });
-    const H = ["Empresa", "Cap. (US$ miles M)", "Precio US$", "Día", "Mes", "Año", "vs. máx. 52 sem.", "Próx. balance", "CCL impl. CEDEAR"];
+    const H = ["Empresa", "Cap. US$ mM", "Precio US$", "Día", "Mes", "Año", "vs S&P mes", "vs S&P año", "vs sector año", "vs máx 52s", "Balance", "CCL CEDEAR"];
     const m = meta(P, "markets");
     return `${panel("Grandes del S&P 500", table(H, rows(mk.megacaps_eeuu)), { lead: true, meta: m })}
-      ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR o cotización en EE.UU. (Saudi Aramco en Riad, convertida a US$). Capitalización: cierre del día anterior. Ordenadas por capitalización; hacé clic en un encabezado para reordenar.</div>`, { meta: m })}
+      ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR o cotización en EE.UU. (Saudi Aramco en Riad, convertida a US$). Capitalización: cierre del día anterior. Cap.: capitalización en miles de millones de US$. Ordenadas por capitalización; hacé clic en un encabezado para reordenar. "vs." = cuánto le ganó (verde) o perdió (rojo) al S&P 500 o al ETF de su sector en EE.UU. (XLK tecnología, XLC comunicaciones, XLY consumo discrecional, XLP consumo básico, XLF financiero, XLV salud, XLE energía, XLB materiales, XLI industria).</div>`, { meta: m })}
       ${panel("Tu selección", table(H, rows(mk.empresas_seleccion)) + `<div class="note">Empresas elegidas a mano (Argentina, Brasil, tecno). Se editan en config/instruments.json → empresas_seleccion.</div>`, { meta: m })}`;
   }
 
@@ -355,9 +381,9 @@
     const head = ["", "Último", ...Object.values(VARS)];
     const g = (k) => table(head, priceRows(mk[k], Object.keys(VARS)));
     const m = meta(P, "markets");
-    return `${bolsas()}<div class="cols-2">${panel("EE.UU.", g("indices_eeuu") + `<h3>Futuros</h3>` + g("futuros") + `<h3>Volatilidad</h3>` + g("volatilidad"), { lead: true, meta: m })}
-      <div class="view">${panel("Resto del mundo", g("indices_mundo"), { meta: m })}${panel("Sectores del S&P 500", g("sectores"), { meta: m })}</div></div>
-      <div class="cols-2"><div class="view">${panel("Monedas", g("monedas"), { meta: m })}${panel("Bonos globales (ETFs)", g("bonos_etf"), { meta: m })}</div>${panel("Commodities y cripto", g("commodities") + `<h3>Cripto</h3>` + g("cripto"), { meta: m })}</div>`;
+    return `${bolsas()}<div class="cols-2">
+      <div class="view">${panel("EE.UU.", g("indices_eeuu") + `<h3>Futuros</h3>` + g("futuros") + `<h3>Volatilidad</h3>` + g("volatilidad"), { lead: true, meta: m })}${panel("Sectores del S&P 500", g("sectores"), { meta: m })}${panel("Bonos globales (ETFs)", g("bonos_etf"), { meta: m })}</div>
+      <div class="view">${panel("Resto del mundo", g("indices_mundo"), { meta: m })}${panel("Monedas", g("monedas"), { meta: m })}${panel("Commodities y cripto", g("commodities") + `<h3>Cripto</h3>` + g("cripto"), { meta: m })}</div></div>`;
   }
 
   function upcoming() {
@@ -377,21 +403,41 @@
     return items.length ? `<ul class="news">${items.map((n) => `<li><span class="t">${hhmm(n.hora)}</span><span><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.titulo)}</a> <span class="f">${esc(n.fuente)}</span></span></li>`).join("")}</ul>` : `<div class="empty">Sin titulares.</div>`;
   }
 
-  function viewCalendario() {
-    const in14 = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+  /* ---------- Calendario unificado: una sola agenda, cada tipo de evento con su color ---------- */
+  const CATS = { us: "Datos EE.UU.", fed: "Fed", ar: "Argentina", bc: "Bancos centrales", intl: "Datos internacionales", earn: "Balances" };
+  let calOff = new Set();
+  try { calOff = new Set(JSON.parse(localStorage.getItem("calOff") || "[]")); } catch {}
+  function agenda() {
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-    const us = (blk(D, "calendar_us") || []).filter((r) => new Date(r.fecha) >= hoy);
-    const usHtml = table(["Fecha", "Dato", "Impacto", "Esperado", "Previo"], us.map((r) => [hhmm(r.fecha), esc(r.evento), r.impacto === "High" ? "Alto" : "Medio", esc(r.esperado || "—"), esc(r.previo || "—")]), [1]);
-    const arHtml = table(["Fecha", "Evento"], (blk(D, "calendar_ar") || []).map((r) => [dmy(r.fecha) + (r.hora ? ` ${r.hora}` : ""), esc(r.evento)]), [1]);
-    const fedHtml = table(["Fecha", "Reunión"], ((blk(D, "fed") || {}).fomc || []).map((f) => [dmy(f), "Decisión FOMC"]), [1]);
-    const earnHtml = table(["Fecha", "Empresa", "Momento", "EPS est."], (blk(D, "earnings") || []).filter((r) => r.fecha <= in14).map((r) => [dmy(r.fecha), r.ticker, esc(r.hora || "—"), fmt(r.eps_estimado, 2)]), [1, 2]);
+    const ev = [];
+    const imp = (x) => (x === "High" ? "alto" : x === "Medium" ? "medio" : "");
+    for (const r of blk(D, "calendar_us") || []) ev.push({ cat: "us", t: r.fecha, hora: true, txt: r.evento, det: [r.esperado && `esp. ${r.esperado}`, r.previo && `prev. ${r.previo}`].filter(Boolean).join(" · "), imp: imp(r.impacto) });
+    for (const f of (blk(D, "fed") || {}).fomc || []) ev.push({ cat: "fed", t: `${f}T15:00:00-03:00`, hora: true, txt: "Decisión de tasas (FOMC)", det: "", imp: "alto" });
+    for (const r of blk(D, "calendar_ar") || []) ev.push({ cat: "ar", t: `${r.fecha}T${r.hora || "00:00"}:00-03:00`, hora: !!r.hora, txt: r.evento, det: "", imp: "alto" });
     const intl = blk(D, "calendar_intl") || {};
-    const intlDatos = (intl.datos_semana || []).filter((r) => new Date(r.fecha) >= hoy);
-    const intlHtml = table(["Fecha", "Banco central", "Hora AR"], (intl.bancos || []).slice(0, 8).map((r) => [dmy(r.fecha), esc(r.banco), esc(r.hora || "—")]), [1])
-      + `<h3>Datos de alto impacto · esta semana</h3>` + table(["Fecha", "País", "Dato", "Esperado", "Previo"], intlDatos.map((r) => [hhmm(r.fecha), esc(r.pais), esc(r.evento), esc(r.esperado || "—"), esc(r.previo || "—")]), [1, 2]);
+    for (const r of intl.bancos || []) ev.push({ cat: "bc", t: `${r.fecha}T${r.hora || "12:00"}:00-03:00`, hora: !!r.hora, txt: `${r.banco} · decisión de tasa`, det: "", imp: "alto" });
+    for (const r of intl.datos_semana || []) ev.push({ cat: "intl", t: r.fecha, hora: true, txt: `${r.pais} · ${r.evento}`, det: [r.esperado && `esp. ${r.esperado}`, r.previo && `prev. ${r.previo}`].filter(Boolean).join(" · "), imp: "alto" });
+    for (const r of blk(D, "earnings") || []) ev.push({ cat: "earn", t: `${r.fecha}T12:00:00-03:00`, hora: false, txt: r.ticker, det: [r.hora, r.eps_estimado != null && `EPS est. ${fmt(r.eps_estimado, 2)}`].filter(Boolean).join(" · "), imp: "" });
+    const fin = new Date(hoy.getTime() + 60 * 864e5);
+    return ev.filter((e) => new Date(e.t) >= hoy && new Date(e.t) < fin).sort((x, y) => new Date(x.t) - new Date(y.t));
+  }
+  const diaAR = (iso) => new Date(iso).toLocaleDateString("es-AR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
+  const horaAR = (iso) => new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "America/Argentina/Buenos_Aires" });
+  function viewCalendario() {
+    const ev = agenda();
+    const cuenta = Object.fromEntries(Object.keys(CATS).map((k) => [k, ev.filter((e) => e.cat === k).length]));
+    const filtros = `<div class="cal-filtros">${Object.entries(CATS).map(([k, n]) => `<button class="cal-f cat-${k}" data-cat="${k}" aria-pressed="${!calOff.has(k)}"><i></i>${n} <span>${cuenta[k]}</span></button>`).join("")}</div>`;
+    const vis = ev.filter((e) => !calOff.has(e.cat));
+    let html = "", dia = "";
+    for (const e of vis) {
+      const d = diaAR(e.t);
+      if (d !== dia) { if (dia) html += "</ul>"; html += `<h3 class="cal-dia">${esc(d)}</h3><ul class="cal">`; dia = d; }
+      html += `<li class="cat-${e.cat}"><span class="t">${e.hora ? horaAR(e.t) : ""}</span><span class="tag"><i></i>${esc(CATS[e.cat])}</span>
+        <span class="e${e.imp === "alto" ? " alto" : ""}">${esc(e.txt)}</span><span class="d">${esc(e.det || "")}</span></li>`;
+    }
+    html = html ? html + "</ul>" : `<div class="empty">No hay eventos con los filtros elegidos.</div>`;
     const n = blk(P, "news") || {};
-    return `<div class="cols-2">${panel("Datos de EE.UU. · esta semana", usHtml, { lead: true, meta: meta(D, "calendar_us") })}${panel("Earnings · próximas 2 semanas", earnHtml, { meta: meta(D, "earnings") })}</div>
-      <div class="cols-2"><div class="view">${panel("Argentina", arHtml, { meta: meta(D, "calendar_ar") })}${panel("Fed", fedHtml, { meta: meta(D, "fed") })}</div>${panel("Internacional", intlHtml, { meta: meta(D, "calendar_intl") })}</div>
+    return `${panel("Calendario", filtros + html + `<div class="note">Hora de Argentina. Datos de EE.UU. e internacionales: semana en curso (Forex Factory). Bancos centrales, Fed e INDEC: fechas oficiales. Balances: Finnhub. Se muestran los próximos 60 días. Tocá un tipo para ocultarlo o mostrarlo.</div>`, { lead: true, src: "" })}
       <div class="cols-2">${panel("Noticias EE.UU.", newsList(n.eeuu || []), { meta: meta(P, "news") })}${panel("Noticias Argentina", newsList(n.argentina || []), { meta: meta(P, "news") })}</div>`;
   }
 
@@ -429,6 +475,12 @@
       return dir === "asc" ? r : -r;
     });
     rows.forEach((r) => tb.appendChild(r));
+  });
+  document.addEventListener("click", (e) => {
+    const f = e.target.closest(".cal-f"); if (!f) return;
+    const k = f.dataset.cat; if (calOff.has(k)) calOff.delete(k); else calOff.add(k);
+    try { localStorage.setItem("calOff", JSON.stringify([...calOff])); } catch {}
+    render();
   });
   document.addEventListener("click", (e) => {
     const b = e.target.closest("nav.tabs button"); if (!b) return;
