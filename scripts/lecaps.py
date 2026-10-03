@@ -228,3 +228,70 @@ def actualizar(tickers, manuales):
     write_json(ARCHIVO, terms)
     return terms, {"nuevas": nuevas, "controles": controles, "sin_resolver": sin_resolver,
                    "pendientes_proxima": max(0, len(pendientes) - MAX_FICHAS)}
+
+
+# ---------- Bonos y letras CER cero cupón ----------
+
+ARCHIVO_CER = HIST / "cer_terms.json"
+PATRON_CER = re.compile(r"^(TZX[A-Z0-9]{2,3}|X\d{2}[EFMAYJLGSOND]\d|X[A-Z]{2}\d{2})$")
+
+
+def clasificar_cer(f):
+    nombre = (f.get("denominacion") or "").upper()
+    if "CER" not in nombre:
+        return "no ajusta por CER"
+    if any(k in nombre for k in ("TAMAR", "DUAL", "DOLAR", "DÓLAR")):
+        return "dual o ajusta por otra referencia"
+    if not ("CERO CUP" in nombre or "LETRA" in nombre):
+        return "paga cupones (carga manual)"
+    return None
+
+
+def actualizar_cer(tickers, manuales, cer_en):
+    """`cer_en(fecha)`: valor del CER publicado a esa fecha. El capital se ajusta por el CER de 10 días
+    hábiles antes de la emisión (CER inicial), igual que en las condiciones de emisión del Tesoro."""
+    import feriados
+    terms = read_json(ARCHIVO_CER, {}) or {}
+    hoy = today_ar()
+    pendientes = [t for t in sorted(set(tickers)) if PATRON_CER.match(t)
+                  and not (terms.get(t, {}).get("cer_inicial") or terms.get(t, {}).get("descartado"))]
+    pendientes.sort(key=lambda t: t in manuales)
+    nuevas, controles, sin_resolver = [], [], []
+    for t in pendientes[:MAX_FICHAS]:
+        try:
+            f = ficha_byma(t)
+        except Exception as e:  # noqa: BLE001
+            log.warning("ficha %s: %s", t, e)
+            f = None
+        time.sleep(PAUSA)
+        if not f:
+            sin_resolver.append(t)
+            continue
+        motivo = clasificar_cer(f)
+        if motivo:
+            terms[t] = {"descartado": motivo, "denominacion": f.get("denominacion")}
+            continue
+        emision, vto = _fecha(f.get("fechaEmision")), _fecha(f.get("fechaVencimiento"))
+        if not emision or not vto or vto <= hoy:
+            sin_resolver.append(t)
+            continue
+        ref = feriados.sumar_habiles(emision, -10)
+        try:
+            ci = cer_en(ref.isoformat())
+        except Exception as e:  # noqa: BLE001
+            log.warning("CER %s: %s", ref, e)
+            ci = None
+        if not ci:
+            sin_resolver.append(t)
+            continue
+        terms[t] = {"cer_inicial": ci, "emision": emision.isoformat(), "vto": vto.isoformat(),
+                    "fecha_cer": ref.isoformat(), "denominacion": f.get("denominacion"), "alta": hoy.isoformat()}
+        if t in manuales:
+            controles.append({"ticker": t, "automatico": round(ci, 4), "manual": round(manuales[t], 4),
+                              "dif_pct": round((ci / manuales[t] - 1) * 100, 3)})
+        else:
+            nuevas.append(t)
+    terms = {t: e for t, e in terms.items() if not e.get("vto") or e["vto"] > (hoy - timedelta(days=30)).isoformat()}
+    write_json(ARCHIVO_CER, terms)
+    return terms, {"nuevas": nuevas, "controles": controles, "sin_resolver": sin_resolver,
+                   "pendientes_proxima": max(0, len(pendientes) - MAX_FICHAS)}

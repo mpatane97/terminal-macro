@@ -118,6 +118,21 @@ def _chg(hist, ticker, last):
     return {k: ch[k] for k in ("w", "m", "y")} if ch else {}
 
 
+def _vol(r):
+    return num((r or {}).get("v"))
+
+
+def _marcar_operados(rows, campo="vol"):
+    """Marca `opero` en cada fila (si hubo volumen en la rueda). Si casi nadie operó todavía (antes de la
+    apertura o un feriado), no marca nada: sería avisar que no operó algo que todavía no podía operar."""
+    con_precio = [r for r in rows if r.get("precio", r.get("usd")) is not None]
+    n = sum(1 for r in con_precio if (r.get(campo) or 0) > 0)
+    hay_rueda = con_precio and n >= 0.3 * len(con_precio)
+    for r in rows:
+        r["opero"] = ((r.get(campo) or 0) > 0) if hay_rueda else None
+    return rows
+
+
 def _usd_ticker(t):
     """Especie en dólares MEP. Los BOPREAL usan otra raíz: BPOA7 -> BPA7D."""
     m = re.fullmatch(r"BPO([A-D]\d)", t)
@@ -175,13 +190,15 @@ def ar_market():
     pesos.sort(key=lambda r: r["vto"])
 
     cer_tamar = _cer_tamar(px, settle, a)
+    for grupo in (soberanos, bopreal, pesos, [r for r in cer_tamar if r["tipo"] == "CER"], [r for r in cer_tamar if r["tipo"] == "TAMAR"]):
+        _marcar_operados(grupo)
     _breakeven(pesos, cer_tamar)
 
     stocks = {r["symbol"]: r for r in _d912("/live/arg_stocks")}
-    acciones = [{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
-                 **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a["acciones"]]
-    panel = [{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
-              **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a.get("panel_lider", [])]
+    acciones = _marcar_operados([{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
+                 "vol": _vol(stocks.get(t)), **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a["acciones"]])
+    panel = _marcar_operados([{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
+              "vol": _vol(stocks.get(t)), **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a.get("panel_lider", [])])
 
     ced = {r["symbol"]: r for r in _d912("/live/arg_cedears")}
     mep = {r.get("ticker"): r for r in _d912("/live/mep")}
@@ -196,17 +213,21 @@ def ar_market():
     cedears = []
     for t in a["cedears"]:
         c = ced.get(t, {})
-        cedears.append({"ticker": t, "precio": num(c.get("c")), "d": num(c.get("pct_change")),
+        cedears.append({"ticker": t, "precio": num(c.get("c")), "d": num(c.get("pct_change")), "vol": _vol(c),
                         **_chg(hist, t, num(c.get("c"))),
                         "mep": num((mep.get(t) or {}).get("close") or (mep.get(t) or {}).get("mark")),
                         "ccl": num((ccl.get(t) or {}).get("CCL_close") or (ccl.get(t) or {}).get("CCL_mark"))})
 
-    # guardar cierres del día para calcular variaciones semanales/mensuales/anuales
+    _marcar_operados(cedears)
+    # guardar cierres del día para calcular variaciones semanales/mensuales/anuales (sólo días hábiles)
+    import feriados
     today = today_ar().isoformat()
-    for r in soberanos + bopreal:
+    if not feriados.es_habil(today_ar()):
+        today = None
+    for r in (soberanos + bopreal) if today else []:
         if r.get("usd"):
             hist.setdefault(_usd_ticker(r["ticker"]), {})[today] = r["usd"]
-    for r in acciones + panel + cedears:
+    for r in (acciones + panel + cedears) if today else []:
         if r.get("precio"):
             hist.setdefault(r["ticker"], {})[today] = r["precio"]
     write_json(HIST / "ar_closes.json", _trim(hist))
@@ -221,11 +242,22 @@ def _cer_tamar(px, settle, a):
     daily = read_json(DATA / "daily.json", {}) or {}
     cer_t10 = (((daily.get("ar_bcra") or {}).get("data") or {}).get("cer_t10") or {}).get("valor")
     out = []
-    for t in a.get("cer", []):
+    # bonos CER: los de la lista curada más los que se dieron de alta solos (scripts/lecaps.py)
+    auto = {t: e for t, e in (read_json(HIST / "cer_terms.json", {}) or {}).items()
+            if e.get("cer_inicial") and e.get("vto", "") > settle.isoformat()}
+    lista = list(dict.fromkeys(a.get("cer", []) + sorted(auto, key=lambda t: auto[t]["vto"])))
+    for t in lista:
         r = px.get(t, {})
         p = num(r.get("c"))
-        row = {"ticker": t, "tipo": "CER", "precio": p, "d": num(r.get("pct_change"))}
+        if t not in a.get("cer", []) and not p:
+            continue
+        row = {"ticker": t, "tipo": "CER", "precio": p, "d": num(r.get("pct_change")), "vol": _vol(r)}
         fam = BONOS.get("cer", {}).get(t)
+        if not fam and t in auto:
+            e = auto[t]
+            fam = {"cer_inicial": e["cer_inicial"], "pago_mes_dia": [e["vto"][5:]],
+                   "amortizacion": {"primera": e["vto"], "cuotas_pct": 100.0, "n": 1}, "cupones": [[e["emision"], 0.0]]}
+            row["auto"] = True
         if fam:
             fl = bonds.build_flows(fam)
             row["vto"] = fl[-1][0].isoformat()
@@ -238,7 +270,7 @@ def _cer_tamar(px, settle, a):
         out.append(row)
     for t in a.get("tamar", []):
         r = px.get(t, {})
-        out.append({"ticker": t, "tipo": "TAMAR", "precio": num(r.get("c")), "d": num(r.get("pct_change"))})
+        out.append({"ticker": t, "tipo": "TAMAR", "precio": num(r.get("c")), "d": num(r.get("pct_change")), "vol": _vol(r)})
     return out
 
 

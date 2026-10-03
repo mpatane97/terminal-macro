@@ -133,13 +133,12 @@ def bond_metrics(flows, price, settle):
 
 
 def settle_date(today, days=1):
+    """Liquidación T+n en días hábiles de Argentina (sin fines de semana ni feriados)."""
+    import feriados
     d = today
-    n = 0
-    while n < days:
-        d += timedelta(days=1)
-        if d.weekday() < 5:
-            n += 1
-    return d
+    while not feriados.es_habil(d):  # si la rueda cae en un día no hábil, se toma el hábil anterior
+        d -= timedelta(days=1)
+    return feriados.sumar_habiles(d, days)
 
 
 def maturity_from_ticker(t):

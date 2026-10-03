@@ -109,6 +109,34 @@ def _ism():
     return row
 
 
+_MESES_EN = {m: i for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august",
+                                         "september", "october", "november", "december"], 1)}
+
+
+def _fomc_web():
+    """Fechas de decisión del FOMC (último día de cada reunión) desde el calendario oficial de la Fed."""
+    html = http_get("https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", as_json=False, timeout=30).text
+    out = []
+    partes = re.split(r"(\d{4}) FOMC Meetings", html)
+    for i in range(1, len(partes) - 1, 2):
+        anio, bloque = int(partes[i]), partes[i + 1]
+        meses = re.findall(r'fomc-meeting__month[^>]*>\s*(?:<[^>]+>\s*)*([A-Za-z/]+)', bloque)
+        dias = re.findall(r'fomc-meeting__date[^>]*>\s*(?:<[^>]+>\s*)*([\d\-–]+)', bloque)
+        for mes, dd in zip(meses, dias):
+            partes_d = [x for x in re.split(r"[-–]", dd) if x]
+            ultimo_dia = partes_d[-1]
+            # "Apr/May 30-1": si el último día es menor que el primero, la decisión cae en el segundo mes
+            cruza = len(partes_d) > 1 and partes_d[-1].isdigit() and partes_d[0].isdigit() and int(partes_d[-1]) < int(partes_d[0])
+            ultimo_mes = mes.split("/")[-1 if cruza else 0].lower()
+            mm = next((v for k, v in _MESES_EN.items() if k.startswith(ultimo_mes[:3])), None)
+            if mm and ultimo_dia.isdigit():
+                out.append(date(anio, mm, int(ultimo_dia)).isoformat())
+    out = sorted(set(out))
+    if len(out) < 8:
+        raise RuntimeError(f"calendario FOMC: sólo {len(out)} fechas leídas")
+    return out
+
+
 def fed():
     lo, hi = fred("DFEDTARL")[-1], fred("DFEDTARU")[-1]
     effr = None
@@ -119,7 +147,12 @@ def fed():
     except Exception as e:  # noqa: BLE001
         log.warning("EFFR: %s", e)
     today = today_ar().isoformat()
-    proximas = [d for d in CFG["fomc_2026_2027"] if d >= today]
+    try:
+        fechas = _fomc_web()
+    except Exception as e:  # noqa: BLE001
+        log.warning("calendario FOMC: %s (uso config)", e)
+        fechas = []
+    proximas = sorted({d for d in fechas + CFG.get("fomc_2026_2027", []) if d >= today}) if not fechas else [d for d in fechas if d >= today]
     return {"rango": [lo[1], hi[1]], "fecha_rango": hi[0], "effr": effr, "proximo_fomc": proximas[:1],
             "fomc": proximas[:4], "dot_plot": _dot_plot()}, "FRED / NY Fed / federalreserve.gov"
 
@@ -197,12 +230,9 @@ def _bcra_series(idv, days=400):
 
 
 def _habiles_atras(d, n):
-    """Retrocede n días hábiles (lun a vie; no contempla feriados)."""
-    while n > 0:
-        d -= timedelta(days=1)
-        if d.weekday() < 5:
-            n -= 1
-    return d
+    """Retrocede n días hábiles de Argentina (descuenta fines de semana y feriados)."""
+    import feriados
+    return feriados.sumar_habiles(d, -n)
 
 
 def ar_bcra():
@@ -427,9 +457,19 @@ def calendar_us():
 
 
 def calendar_ar():
-    c = load_config("calendario_ar.json")
-    today = today_ar().isoformat()
-    return [e for e in c["eventos"] if e["fecha"] >= today], "INDEC (carga manual)"
+    """Calendario del INDEC leído de sus PDF semestrales. Lo cargado a mano en config/calendario_ar.json
+    (licitaciones u otros eventos) se suma; si el PDF no responde, queda sólo eso."""
+    import indec
+    hoy = today_ar().isoformat()
+    auto, leidos = indec.calendario()
+    manual = [e for e in load_config("calendario_ar.json").get("eventos", []) if e["fecha"] >= hoy]
+    tipo = lambda e: e["evento"].split(" ")[0].upper()  # noqa: E731
+    claves = {(e["fecha"], tipo(e)) for e in auto}
+    eventos = sorted(auto + [e for e in manual if (e["fecha"], tipo(e)) not in claves], key=lambda e: e["fecha"])
+    if not eventos:
+        raise RuntimeError("sin eventos futuros del INDEC")
+    fuente = "INDEC, calendario de difusión (PDF)" if auto else "INDEC (carga manual; el PDF no respondió)"
+    return eventos, fuente + (f" · {'; '.join(leidos)}" if leidos else "")
 
 
 def earnings():
@@ -456,6 +496,59 @@ def earnings():
     return out, "Finnhub (secundaria)"
 
 
+def feriados_block():
+    import feriados
+    f = feriados.actualizar()
+    hoy = today_ar().isoformat()
+    return {k: [r for r in v if r["fecha"] >= hoy][:40] for k, v in f.items()}, "argentinadatos (Argentina); librería holidays (bolsas del exterior)"
+
+
+def cer_auto():
+    """Altas automáticas de bonos y letras CER cero cupón (TZX…, X…)."""
+    import lecaps
+    tickers = []
+    for path in ("/live/arg_bonds", "/live/arg_notes"):
+        try:
+            tickers += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=25) if r.get("symbol")]
+        except Exception as e:  # noqa: BLE001
+            log.warning("data912 %s: %s", path, e)
+    if not tickers:
+        raise RuntimeError("data912 no devolvió tickers")
+    lst = _bcra_list()
+    idv = next((v["idVariable"] for v in lst if re.search(r"^\s*CER\b|Coeficiente de Estabilizaci", v.get("descripcion", ""), re.I)), None)
+    if not idv:
+        raise RuntimeError("no se encontró la serie CER en el BCRA")
+
+    def cer_en(fecha):
+        d = date.fromisoformat(fecha)
+        js = http_get(f"{BCRA}/{idv}", params={"desde": (d - timedelta(days=10)).isoformat(), "hasta": d.isoformat(), "limit": 100}, timeout=30)
+        det = sorted((x["fecha"], num(x["valor"])) for x in (js["results"][0]["detalle"] if js.get("results") else []))
+        cand = [v for f, v in det if f <= fecha and v]
+        return cand[-1] if cand else None
+
+    manuales = {t: f["cer_inicial"] for t, f in BONOS.get("cer", {}).items()}
+    terms, resumen = lecaps.actualizar_cer(tickers, manuales, cer_en)
+    resumen["automaticos"] = sorted(t for t, e in terms.items() if e.get("cer_inicial") and t not in manuales)
+    return resumen, "BYMA ficha técnica + CER del BCRA"
+
+
+def avisos():
+    """Datos que dependen de calendarios y están por quedarse sin fechas futuras."""
+    hoy = today_ar()
+    lim = (hoy + timedelta(days=45)).isoformat()
+    out = []
+    for k, v in CFG.get("bancos_centrales", {}).items():
+        if k.startswith("_"):
+            continue
+        if not any(f >= hoy.isoformat() for f in v.get("fechas", [])):
+            out.append(f"Calendario de {v.get('nombre', k)}: no quedan fechas cargadas")
+    cal = read_json(DATA / "daily.json", {}) or {}
+    ar = ((cal.get("calendar_ar") or {}).get("data")) or []
+    if not any("IPC" in e.get("evento", "") and e["fecha"] <= lim for e in ar):
+        out.append("Calendario INDEC: no hay fecha de IPC en los próximos 45 días")
+    return out, "controles propios"
+
+
 def lecaps_auto():
     """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
     import lecaps
@@ -475,6 +568,7 @@ def lecaps_auto():
 
 if __name__ == "__main__":
     run_blocks(DATA / "daily.json", {
+        "feriados": feriados_block,   # primero: los cálculos de días hábiles lo usan
         "us_macro": us_macro,
         "fed": fed,
         "treasuries": treasuries,
@@ -493,5 +587,7 @@ if __name__ == "__main__":
         "megacaps_info": megacaps_info,
         "earnings": earnings,
         "lecaps_auto": lecaps_auto,
+        "cer_auto": cer_auto,
+        "avisos": avisos,
     })
     log.info("daily.json actualizado %s", now_iso())

@@ -9,7 +9,9 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "docs" / "data"
+# Los datos viven en la rama "datos" del repo (el workflow la baja a una carpeta y pasa la ruta en DATA_DIR).
+# Sin esa variable, se usa docs/data (pruebas locales).
+DATA = Path(os.environ["DATA_DIR"]).resolve() if os.environ.get("DATA_DIR") else ROOT / "docs" / "data"
 HIST = DATA / "history"
 CONFIG = ROOT / "config"
 AR_TZ = timezone(timedelta(hours=-3))
