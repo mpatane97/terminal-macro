@@ -325,6 +325,28 @@
         ]
       ],
       "_fuente": "Llamado BONAR 2029N"
+    },
+    "BOPREAL_S4": {
+      "tickers": [
+        "BPOA8",
+        "BPOB8"
+      ],
+      "pago_mes_dia": [
+        "04-30",
+        "10-31"
+      ],
+      "amortizacion": {
+        "primera": "2028-10-31",
+        "cuotas_pct": 100.0,
+        "n": 1
+      },
+      "cupones": [
+        [
+          "2025-06-24",
+          3.0
+        ]
+      ],
+      "_nota": "BOPREAL Serie 4 (BCRA): emisión 24/06/2025, 3% anual pagadero semestral (30/4 y 31/10), amortización íntegra al 31/10/2028. Desde 30/09/2025 se divide en 4A (BPOA8, con rescate anticipado a opción del tenedor desde 30/04/2028) y 4B (BPOB8, sin rescate)."
     }
   },
   "_pesos_nota": "LECAPs y BONCAPs: el vencimiento sale del ticker (S30N6 = 30/11/2026). El pago final por 100 VN hay que cargarlo acá (sale del aviso de licitación). Sin pago final no se calcula TEM.",
