@@ -402,10 +402,31 @@
     const cauT = panel("Cauciones en pesos", table(["Plazo", "TNA", "Día", "TEM", "TEA"],
         cau.map((c) => [`${c.plazo} día${c.plazo > 1 ? "s" : ""}`, pct(c.tna), chg(c.d_pb, 0, " pb"), pct(c.tem), pct(c.tea, 1)]))
       + `<div class="note">Tasa colocadora de BYMA. TEM y TEA: renovando la caución al mismo plazo y tasa. Sirve para comparar contra la LECAP más corta.</div>`, { meta: meta(P, "cauciones") });
-    const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d)]))), { meta: m });
+    // dólar linked: TIR en dólares y dólar implícito contra la tasa fija (a qué dólar empatan LECAP y dólar linked)
+    const dlk = (arm.dolar_linked || []);
+    const temAl = (d) => { const pts = pf.filter((r) => r.tem != null).sort((x, y) => x.dias - y.dias); if (!pts.length) return null;
+      if (d <= pts[0].dias) return pts[0].tem; if (d >= pts[pts.length - 1].dias) return pts[pts.length - 1].tem;
+      for (let i = 0; i < pts.length - 1; i++) if (d >= pts[i].dias && d <= pts[i + 1].dias) return pts[i].tem + (pts[i + 1].tem - pts[i].tem) * (d - pts[i].dias) / (pts[i + 1].dias - pts[i].dias); return null; };
+    const dlT = panel("Dólar linked", dlk.length ? table(["Ticker", "Vto.", "Días", "Precio $", "Precio US$", "TIR en US$", "Dólar implícito", "Futuro A3"],
+        dlk.map((r) => { const tf = temAl(r.dias), imp = a35 && r.precio_usd && tf != null ? a35 * Math.pow(1 + tf / 100, r.dias / 30) / (100 / r.precio_usd) : null, fu = futAl(r.dias);
+          return fila(r, [tk(r), dmy(r.vto), r.dias, fmt(r.precio, 2), fmt(r.precio_usd, 2), pct(r.tir), imp ? `<b>${fmt(imp, 0)}</b>` : "—", fu ? fmt(fu, 0) : "—"]); }))
+      + `<div class="note">Pagan en pesos el valor nominal en dólares al A3500 del vencimiento. TIR en US$: contra el A3500 de hoy (${fmt(a35, 2)}). Dólar implícito: el mayorista al vencimiento que empata el dólar linked con una LECAP del mismo plazo; si el dólar termina arriba, gana el dólar linked.</div>`
+      : `<div class="empty">No hay letras dólar linked cotizando.</div>`, { meta: m });
+    const lic = blk(D, "licitaciones_resultado") || [], ult = lic[0];
+    const bill = (v) => (v == null ? "—" : `$ ${fmt(v / 1e12, 2)} billones`);
+    const licT = panel("Última licitación del Tesoro", ult ? `<div class="strip"><span><b>Fecha</b> ${dmy(ult.fecha)}</span><span><b>Ofertado</b> ${bill(ult.ofertado)}</span>
+        <span><b>Adjudicado</b> ${bill(ult.adjudicado)}</span>${ult.rollover != null ? `<span><b>Rollover</b> ${pct(ult.rollover, 1)}</span>` : ""}
+        ${ult.ofertado && ult.adjudicado ? `<span><b>Adjudicado / ofertado</b> ${pct(ult.adjudicado / ult.ofertado * 100, 0)}</span>` : ""}</div>`
+      + table(["Instrumento", "VE adjudicado ($ M)", "Precio", "TEM", "TIREA"], (ult.instrumentos || []).map((i) => [esc(i.instrumento) + (i.nueva ? `<span class="sub">nueva</span>` : ""),
+          i.usd ? `${fmt(i.ve_adjudicado, 0)}<span class="sub">en $</span>` : fmt(i.ve_adjudicado, 0), i.precio != null ? fmt(i.precio, 2) : "—", pct(i.tem), pct(i.tirea)]), [0])
+      + (lic.length > 1 ? `<h3>Anteriores</h3>` + table(["Fecha", "Ofertado", "Adjudicado", "Rollover"], lic.slice(1).map((r) => [dmy(r.fecha), bill(r.ofertado), bill(r.adjudicado), r.rollover != null ? pct(r.rollover, 1) : "—"])) : "")
+      + `<div class="note">Fuente: <a href="${esc(ult.url)}" target="_blank" rel="noopener">resultado publicado por la Secretaría de Finanzas</a>. El rollover aparece solo cuando el comunicado lo informa.</div>`
+      : `<div class="empty">Sin resultados leídos todavía.</div>`, { meta: meta(D, "licitaciones_resultado") });
+    const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d)])))
+      + `<div class="note">Sin TIR: depende del margen sobre TAMAR de cada emisión y de la historia de la TAMAR desde la emisión; queda pendiente de cargar esas condiciones.</div>`, { meta: m });
     return `${rueda()}${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky view">${curvaPesos}${cauT}</div></div>
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
-      <div class="cols-split"><div class="view">${beT}</div><div>${tam}</div></div>`;
+      <div class="cols-split"><div class="view">${beT}${dlT}</div><div class="view">${licT}${tam}</div></div>`;
   }
 
   function viewArAcciones() {
@@ -465,7 +486,12 @@
     const head = ["", "Último", ...Object.values(VARS)];
     const g = (k) => table(head, priceRows(mk[k], Object.keys(VARS)));
     const m = meta(P, "markets");
-    return `${bolsas()}<div class="cols-2">
+    const tbc = blk(D, "tasas_bc") || [], prox = {};
+    for (const b of ((blk(D, "calendar_intl") || {}).bancos || [])) if (!prox[b.banco]) prox[b.banco] = b.fecha;
+    prox.Fed = ((blk(D, "fed") || {}).proximo_fomc || [])[0];
+    const tbcT = panel("Tasas de política monetaria", table(["Banco central", "Tasa", "Qué tasa", "Dato del", "Próxima decisión"],
+      tbc.map((b) => [esc(b.banco), pct(b.tasa, 2), `<span class="na">${esc(b.detalle)}</span>`, dmy(b.fecha), dmy(prox[b.banco] || (b.banco.startsWith("Banco Central de Brasil") ? prox["Banco Central de Brasil (Copom)"] : null))]), [0, 2]), { meta: meta(D, "tasas_bc") });
+    return `${bolsas()}${tbcT}<div class="cols-2">
       <div class="view">${panel("EE.UU.", g("indices_eeuu") + `<h3>Futuros</h3>` + g("futuros") + `<h3>Volatilidad</h3>` + g("volatilidad"), { lead: true, meta: m })}${panel("Sectores del S&P 500", g("sectores"), { meta: m })}${panel("Bonos globales (ETFs)", g("bonos_etf"), { meta: m })}</div>
       <div class="view">${panel("Resto del mundo", g("indices_mundo"), { meta: m })}${panel("Monedas", g("monedas"), { meta: m })}${panel("Commodities y cripto", g("commodities") + `<h3>Cripto</h3>` + g("cripto"), { meta: m })}</div></div>`;
   }
@@ -531,7 +557,7 @@
   /* ---------- Flujo de fondos de un bono o letra (clic en la fila) ---------- */
   function buscarRF(t) {
     const a = blk(P, "ar_market") || {};
-    return [...(a.soberanos || []), ...(a.bopreal || []), ...(a.pesos_fija || []), ...(a.cer_tamar || [])].find((r) => r.ticker === t);
+    return [...(a.soberanos || []), ...(a.bopreal || []), ...(a.pesos_fija || []), ...(a.cer_tamar || []), ...(a.dolar_linked || [])].find((r) => r.ticker === t);
   }
   function abrirFlujos(t) {
     const r = buscarRF(t); if (!r || !r.flujos) return;
@@ -541,7 +567,9 @@
     const datos = [["Precio", fmt(precio, 2) + (usd ? " US$" : " $")], ["TIR", pct(r.tir ?? r.tirea, 2) + (cer ? " real" : "")], fija ? ["TEM", pct(r.tem)] : ["Duration mod.", fmt(r.dur_mod, 2)],
       usd ? ["Paridad", pct(r.paridad, 1)] : ["Vencimiento", dmy(r.vto)], usd ? ["Ley", esc(r.ley || "—")] : ["Días", r.dias ?? r.dias_vto ?? "—"]];
     const filas = r.flujos.map((f) => [dmy(f[0]), fmt(f[1], 3), fmt(f[2], 3), fmt(f[3], 3), `<b>${fmt(f[4], 3)}</b>`]);
-    const nota = cer ? `Montos por 100 VN ajustados por el CER de hoy (coeficiente ${fmt(r.coef_cer, 4)}); el pago real depende del CER a la fecha de cada pago.`
+    const dlnk = r.tipo === "Dólar linked";
+    const nota = dlnk ? `Dólar linked: paga US$ 100 por cada 100 VN, en pesos al tipo de cambio A3500 del vencimiento (con el A3500 de hoy serían $ ${fmt((blk(P, "ar_market") || {}).a3500_ref * 100, 0)}).`
+      : cer ? `Montos por 100 VN ajustados por el CER de hoy (coeficiente ${fmt(r.coef_cer, 4)}); el pago real depende del CER a la fecha de cada pago.`
       : fija ? `Letra capitalizable: un único pago al vencimiento (capital 100 + interés capitalizado a la TEM de emisión).`
       : `Montos por 100 VN original en dólares. Fechas corridas al día hábil siguiente cuando caen en feriado o fin de semana. Saldo: capital pendiente antes del pago.`;
     const box = $("#ficha");
