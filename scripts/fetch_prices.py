@@ -318,6 +318,35 @@ def ar_market():
         pesos.append(row)
     pesos.sort(key=lambda r: r["vto"])
 
+    # dólar linked: pagan en pesos el valor nominal en dólares al tipo de cambio A3500 del vencimiento
+    a35 = ((((read_json(DATA / "daily.json", {}) or {}).get("ar_bcra") or {}).get("data") or {}).get("a3500") or {}).get("valor")
+    dl = []
+    for sym, r in px.items():
+        m_dl = re.fullmatch(r"D(\d{2})([EFMAYJLGSOND])(\d)", sym)
+        if not m_dl:
+            continue
+        mat = bonds.maturity_from_ticker("S" + sym[1:])
+        p = num(r.get("c"))
+        if not mat or mat <= settle or not p:
+            continue
+        row = {"ticker": sym, "tipo": "Dólar linked", "precio": p, "vto": mat.isoformat(), "dias": (mat - settle).days,
+               "d": num(r.get("pct_change")), "vol": _vol(r)}
+        if a35:
+            usd = p / a35
+            for escala in (1, 100, 0.1):  # precio por 100 VN; si la fuente lo da por 1 o por 1.000 VN, se corrige
+                if 40 <= usd * escala <= 130:
+                    usd *= escala
+                    break
+            else:
+                usd = None
+            if usd:
+                tir = (100 / usd) ** (365 / row["dias"]) - 1
+                row.update({"precio_usd": usd, "tir": tir * 100, "tna": ((100 / usd) - 1) * 365 / row["dias"] * 100,
+                            "flujos": [[mat.isoformat(), 100.0, round(100 - 100, 4), 100.0, 100.0]]})
+        dl.append(row)
+    dl.sort(key=lambda r: r["vto"])
+    _marcar_operados(dl)
+
     cer_tamar = _cer_tamar(px, settle, a)
     for grupo in (soberanos, bopreal, pesos, [r for r in cer_tamar if r["tipo"] == "CER"], [r for r in cer_tamar if r["tipo"] == "TAMAR"]):
         _marcar_operados(grupo)
@@ -367,7 +396,7 @@ def ar_market():
             hist.setdefault(r["ticker"], {})[today] = r["precio"]
     write_json(HIST / "ar_closes.json", _trim(hist))
 
-    return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar,
+    return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar, "dolar_linked": dl, "a3500_ref": a35,
             "acciones": acciones, "panel_lider": panel, "cedears": cedears, "cedears_mega": mega, "sectores": a.get("sectores", {}), "liquidacion": settle.isoformat()}, \
         ("data912.com (secundaria)" if not RESPALDOS else "BYMA open data (respaldo; data912 no respondió)") + "; TIR y TEM: cálculo propio"
 

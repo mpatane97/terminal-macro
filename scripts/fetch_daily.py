@@ -138,7 +138,7 @@ def _fomc_web():
 
 
 def fed():
-    lo, hi = fred("DFEDTARL")[-1], fred("DFEDTARU")[-1]
+    lo, hi = fred("DFEDTARL", (today_ar() - timedelta(days=400)).isoformat())[-1], fred("DFEDTARU", (today_ar() - timedelta(days=400)).isoformat())[-1]
     effr = None
     try:
         js = http_get("https://markets.newyorkfed.org/api/rates/unsecured/effr/last/1.json")
@@ -659,7 +659,7 @@ def _pagos_deuda():
     prices = read_json(DATA / "prices.json", {}) or {}
     arm = ((prices.get("ar_market") or {}).get("data")) or {}
     venc = {}
-    for r in (arm.get("pesos_fija") or []) + [x for x in (arm.get("cer_tamar") or []) if x.get("vto")]:
+    for r in (arm.get("pesos_fija") or []) + (arm.get("dolar_linked") or []) + [x for x in (arm.get("cer_tamar") or []) if x.get("vto")]:
         v = r.get("vto")
         if v and hoy.isoformat() <= v <= lim.isoformat():
             venc.setdefault(v, []).append(r["ticker"])
@@ -794,6 +794,60 @@ def _tickers_d912():
         return list(_cache912["t"])
 
 
+def licitaciones_resultado():
+    """Últimos resultados de licitación del Tesoro (Secretaría de Finanzas)."""
+    import licitaciones
+    r = licitaciones.resultados(4)
+    if not r or not any(x["instrumentos"] or x["adjudicado"] for x in r):
+        raise RuntimeError("no se pudieron leer resultados de licitación")
+    return r, "Secretaría de Finanzas (resultados de licitación)"
+
+
+def tasas_bancos_centrales():
+    """Tasa de política vigente de los bancos centrales que sigue la terminal."""
+    out = []
+    # Fed: rango objetivo (FRED)
+    try:
+        lo, hi = fred("DFEDTARL", (today_ar() - timedelta(days=400)).isoformat())[-1], fred("DFEDTARU", (today_ar() - timedelta(days=400)).isoformat())[-1]
+        out.append({"banco": "Fed", "tasa": hi[1], "detalle": f"rango {lo[1]:.2f}–{hi[1]:.2f}%", "fecha": hi[0]})
+    except Exception as e:  # noqa: BLE001
+        log.warning("tasa Fed: %s", e)
+    # BCE: tasa de la facilidad de depósito (la que guía el mercado)
+    try:
+        f, v = fred("ECBDFR", (today_ar() - timedelta(days=400)).isoformat())[-1]
+        out.append({"banco": "BCE", "tasa": v, "detalle": "facilidad de depósito", "fecha": f})
+    except Exception as e:  # noqa: BLE001
+        log.warning("tasa BCE: %s", e)
+    # Banco de Inglaterra: Bank Rate (base de datos del BoE)
+    try:
+        hoy = today_ar()
+        txt = http_get("https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp",
+                       params={"csv.x": "yes", "Datefrom": (hoy - timedelta(days=120)).strftime("%d/%b/%Y"), "Dateto": "now",
+                               "SeriesCodes": "IUDBEDR", "CSVF": "TN", "UsingCodes": "Y", "VPD": "Y", "VFD": "N"},
+                       headers={"User-Agent": "Mozilla/5.0"}, as_json=False, timeout=30).text
+        filas = [l.split(",") for l in txt.strip().splitlines()[1:] if "," in l]
+        f, v = filas[-1][0], num(filas[-1][1])
+        out.append({"banco": "Banco de Inglaterra", "tasa": v, "detalle": "Bank Rate", "fecha": datetime.strptime(f.strip(), "%d %b %Y").date().isoformat()})
+    except Exception as e:  # noqa: BLE001
+        log.warning("tasa BoE: %s", e)
+    # Banco de Japón: tasa de política (OECD vía FRED, mensual: puede venir con un mes de demora)
+    try:
+        f, v = fred("IRSTCB01JPM156N", (today_ar() - timedelta(days=400)).isoformat())[-1]
+        out.append({"banco": "Banco de Japón", "tasa": v, "detalle": "tasa de política (dato mensual)", "fecha": f})
+    except Exception as e:  # noqa: BLE001
+        log.warning("tasa BoJ: %s", e)
+    # Brasil: meta Selic (Banco Central do Brasil, SGS 432)
+    try:
+        r = http_get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1", params={"formato": "json"}, timeout=30)[-1]
+        d, m, y = r["data"].split("/")
+        out.append({"banco": "Banco Central de Brasil (Copom)", "tasa": num(r["valor"]), "detalle": "meta Selic", "fecha": f"{y}-{m}-{d}"})
+    except Exception as e:  # noqa: BLE001
+        log.warning("tasa Selic: %s", e)
+    if not out:
+        raise RuntimeError("ningún banco central respondió")
+    return out, "FRED (Fed, BCE, BoJ), Bank of England, Banco Central do Brasil"
+
+
 def lecaps_auto():
     """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
     import lecaps
@@ -829,6 +883,8 @@ if __name__ == "__main__":
         "lecaps_auto": lecaps_auto,
         "cer_auto": cer_auto,
         "futuros_dolar": futuros_dolar,
+        "licitaciones_resultado": licitaciones_resultado,
+        "tasas_bc": tasas_bancos_centrales,
         "avisos": avisos,
     })
     log.info("daily.json actualizado %s", now_iso())
