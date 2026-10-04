@@ -419,7 +419,7 @@
         ${ult.ofertado && ult.adjudicado ? `<span><b>Adjudicado / ofertado</b> ${pct(ult.adjudicado / ult.ofertado * 100, 0)}</span>` : ""}</div>`
       + table(["Instrumento", "VE adjudicado ($ M)", "Precio", "TEM", "TIREA"], (ult.instrumentos || []).map((i) => [esc(i.instrumento) + (i.nueva ? `<span class="sub">nueva</span>` : ""),
           i.usd ? `${fmt(i.ve_adjudicado, 0)}<span class="sub">en $</span>` : fmt(i.ve_adjudicado, 0), i.precio != null ? fmt(i.precio, 2) : "—", pct(i.tem), pct(i.tirea)]), [0])
-      + (lic.length > 1 ? `<h3>Anteriores</h3>` + table(["Fecha", "Ofertado", "Adjudicado", "Rollover"], lic.slice(1).map((r) => [dmy(r.fecha), bill(r.ofertado), bill(r.adjudicado), r.rollover != null ? pct(r.rollover, 1) : "—"])) : "")
+      + (lic.length > 1 ? `<h3>Anteriores</h3>` + table(["Fecha", "Ofertado", "Adjudicado", "Adj./ofertado"], lic.slice(1).map((r) => [dmy(r.fecha), bill(r.ofertado), bill(r.adjudicado), r.ofertado ? pct(100 * r.adjudicado / r.ofertado, 0) : "—"])) : "")
       + `<div class="note">Fuente: <a href="${esc(ult.url)}" target="_blank" rel="noopener">resultado publicado por la Secretaría de Finanzas</a>. El rollover aparece solo cuando el comunicado lo informa.</div>`
       : `<div class="empty">Sin resultados leídos todavía.</div>`, { meta: meta(D, "licitaciones_resultado") });
     const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d)])))
