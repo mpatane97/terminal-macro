@@ -71,6 +71,16 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
     p = params or {}
     if "argentinadatos.com/v1/feriados" in url:
         return [{"fecha": "2026-10-12", "tipo": "trasladable", "nombre": "Diversidad cultural"}, {"fecha": "2026-11-23", "tipo": "trasladable", "nombre": "Soberanía"}]
+    if url.endswith("/economia/finanzas/noticias"):
+        class _L: text = '<a href="/noticias/resultado-de-la-licitacion-por-efectivo-de-instrumentos-1">r</a>'
+        return _L
+    if "/noticias/resultado-de-la-licitacion" in url:
+        class _R:
+            text = ("<p>27 de agosto de 2026</p><p>Se recibieron ofertas por un total de valor efectivo de $ 13,18 billones. "
+                    "Se adjudicó un total de valor efectivo $ 12,16 billones.</p><table><tr><th>Instrumento</th><th>VNO Adjudicado</th>"
+                    "<th>VE Adjudicado</th><th>Precio</th><th>TIREA</th></tr><tr><td>LECAP S30N6 (Reapertura)</td><td>$ 5.000.000</td>"
+                    "<td>$ 6.085.000</td><td>$ 1.217,00</td><td>29,75%</td></tr></table>")
+        return _R
     if "indec.gob.ar" in url or "fomccalendars" in url:
         raise RuntimeError("sin red en la prueba")
     if "rava.com/perfil/CAUCION" in url:
@@ -253,7 +263,7 @@ common.today_ar = lambda: TODAY
 
 OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
-    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos"]})
+    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales"]})
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 bad = {k: v["error"] for src in (d, p) for k, v in src.items() if isinstance(v, dict) and v.get("error")}
 print("errores:", json.dumps(bad, ensure_ascii=False, indent=1) if bad else "ninguno")
