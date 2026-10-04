@@ -542,10 +542,70 @@ def _fechas_texto(txt, anio):
     return out
 
 
+_MESES_NOM = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def _color(c):
+    if c is None:
+        return None
+    if isinstance(c, (int, float)):
+        c = (c, c, c)
+    c = tuple(round(float(x), 2) for x in c)
+    if len(c) == 4:  # CMYK -> RGB aproximado
+        k = c[3]
+        c = tuple(round((1 - x) * (1 - k), 2) for x in c[:3])
+    return c
+
+
+def _lic_desde_pdf(contenido, anio):
+    """El cronograma es un calendario anual: cada día de llamado, licitación y liquidación está pintado de un
+    color, explicado en la leyenda de arriba ("Llamado", "Licitación", "Liquidación"). Se lee el color de fondo
+    detrás de cada número de día."""
+    import io
+    import pdfplumber
+    eventos = {"llamado": [], "licitacion": [], "liquidacion": []}
+    with pdfplumber.open(io.BytesIO(contenido)) as pdf:
+        leyenda = {}
+        for page in pdf.pages:
+            words = page.extract_words(extra_attrs=["non_stroking_color"])
+            rects = [r for r in page.rects if r.get("fill")] + [c for c in getattr(page, "curves", []) if c.get("fill")]
+            def fondo(w):
+                cx, cy = (w["x0"] + w["x1"]) / 2, (w["top"] + w["bottom"]) / 2
+                cands = [r for r in rects if r["x0"] - 1 <= cx <= r["x1"] + 1 and r["top"] - 1 <= cy <= r["bottom"] + 1
+                         and (r["x1"] - r["x0"]) < 60 and (r["bottom"] - r["top"]) < 40]
+                cands.sort(key=lambda r: (r["x1"] - r["x0"]) * (r["bottom"] - r["top"]))
+                return _color(cands[0].get("non_stroking_color")) if cands else None
+            # leyenda: el cuadradito de color a la izquierda de cada palabra
+            for w in words:
+                clave = {"llamado": "llamado", "licitación": "licitacion", "licitacion": "licitacion", "liquidación": "liquidacion", "liquidacion": "liquidacion"}.get(w["text"].lower())
+                if clave and clave not in leyenda:
+                    cy = (w["top"] + w["bottom"]) / 2
+                    cerca = [r for r in rects if r["x1"] <= w["x0"] + 2 and w["x0"] - r["x1"] < 40 and r["top"] - 3 <= cy <= r["bottom"] + 3]
+                    if cerca:
+                        leyenda[clave] = _color(max(cerca, key=lambda r: r["x1"]).get("non_stroking_color"))
+                    else:
+                        leyenda[clave] = _color(w.get("non_stroking_color"))
+            # meses: encabezados con su posición; cada número de día pertenece al encabezado más cercano por arriba en su columna
+            meses = [(w, _MESES_NOM.index(w["text"].lower()) + 1) for w in words if w["text"].lower() in _MESES_NOM]
+            for w in words:
+                if not re.fullmatch(r"\d{1,2}", w["text"]):
+                    continue
+                arriba = [(m, n) for m, n in meses if m["top"] < w["top"] and abs((m["x0"] + m["x1"]) / 2 - (w["x0"] + w["x1"]) / 2) < page.width / 4]
+                if not arriba:
+                    continue
+                mes = max(arriba, key=lambda x: x[0]["top"])[1]
+                col = fondo(w) or _color(w.get("non_stroking_color"))
+                for clave, c in leyenda.items():
+                    if c and col and all(abs(a - b) < 0.06 for a, b in zip(c, col)):
+                        try:
+                            eventos[clave].append(date(anio, mes, int(w["text"])))
+                        except ValueError:
+                            pass
+    return eventos, leyenda
+
+
 def _licitaciones():
-    """Fechas de licitación del Tesoro, del cronograma anual de la Secretaría de Finanzas: tabla de la página
-    o, si la página sólo enlaza el PDF, el PDF. Cada fila trae llamado, licitación y liquidación."""
-    import indec
+    """Fechas de licitación del Tesoro, del cronograma anual (PDF) de la Secretaría de Finanzas."""
     from urllib.parse import urljoin
     hoy = today_ar()
     ev = []
@@ -556,27 +616,23 @@ def _licitaciones():
         except Exception as e:  # noqa: BLE001
             log.warning("cronograma licitaciones %s: %s", anio, e)
             continue
-        renglones = []
-        for f in re.findall(r"<tr.*?</tr>", html, flags=re.S | re.I):
-            renglones.append(" | ".join(re.sub(r"<[^>]+>", " ", c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", f, flags=re.S | re.I)))
-        if not any(len(_fechas_texto(r, anio)) >= 2 for r in renglones):
-            for pdf in dict.fromkeys(re.findall(r'href="([^"]+\.pdf)"', html, re.I)):
-                try:
-                    texto = indec._texto_pdf(http_get(urljoin(url, pdf), as_json=False, timeout=30).content)
-                    (HIST / f"licitaciones_{anio}.txt").write_text(texto, encoding="utf-8")
-                    renglones += texto.splitlines()
-                except Exception as e:  # noqa: BLE001
-                    log.warning("cronograma PDF %s: %s", pdf, e)
-        for r in renglones:
-            fs = _fechas_texto(r, anio)
-            if len(fs) >= 3:
-                lic, liq = fs[1], fs[2]
-            elif len(fs) == 2:
-                lic, liq = fs[0], fs[1]
-            else:
+        for pdf in dict.fromkeys(re.findall(r'href="([^"]+\.pdf)"', html, re.I)):
+            try:
+                contenido = http_get(urljoin(url, pdf), as_json=False, timeout=30).content
+                (HIST / f"licitaciones_{anio}.pdf").write_bytes(contenido)  # copia para revisar el formato
+                fechas, leyenda = _lic_desde_pdf(contenido, anio)
+                log.info("cronograma %s: leyenda %s, %s", anio, leyenda, {k: len(v) for k, v in fechas.items()})
+            except Exception as e:  # noqa: BLE001
+                log.warning("cronograma PDF %s: %s", pdf, e)
                 continue
-            if lic >= hoy and 0 <= (liq - lic).days <= 7:
-                ev.append({"fecha": lic.isoformat(), "hora": "15:00", "evento": f"Licitación del Tesoro (liquida {liq.strftime('%d/%m')})", "tipo": "licitacion"})
+            liqs = sorted(set(fechas["liquidacion"]))
+            for lic in sorted(set(fechas["licitacion"])):
+                liq = next((d for d in liqs if 0 <= (d - lic).days <= 7), None)
+                if lic >= hoy:
+                    ev.append({"fecha": lic.isoformat(), "hora": "15:00", "tipo": "licitacion",
+                               "evento": "Licitación del Tesoro" + (f" (liquida {liq.strftime('%d/%m')})" if liq else "")})
+            if fechas["licitacion"]:
+                break
     vistos = set()
     return [e for e in sorted(ev, key=lambda x: x["fecha"]) if not (e["fecha"] in vistos or vistos.add(e["fecha"]))]
 
