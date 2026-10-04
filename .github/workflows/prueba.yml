@@ -1,0 +1,34 @@
+name: Prueba
+
+# Corre cada vez que se sube algo a main: si un archivo quedó mal subido o un cálculo cambió,
+# la corrida falla y GitHub manda un mail.
+on:
+  push:
+    branches: [main]
+    paths: ["scripts/**", "config/**", "docs/**", "tests/**", "requirements.txt", ".github/workflows/**"]
+  workflow_dispatch: {}
+
+jobs:
+  probar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - run: uv pip install --system -r requirements.txt
+      - name: Cálculos con valores conocidos
+        run: python tests/regresion.py
+      - name: Corrida completa con datos simulados
+        run: |
+          python tests/mock_run.py | tee salida.txt
+          grep -q "errores: ninguno" salida.txt
+      - name: La página no tiene errores de sintaxis
+        run: node --check docs/app.js
+      - name: Los archivos de configuración son JSON válidos
+        run: for f in config/*.json; do python -m json.tool "$f" > /dev/null || exit 1; done

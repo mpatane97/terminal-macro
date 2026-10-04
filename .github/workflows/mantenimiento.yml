@@ -1,0 +1,35 @@
+name: Mantenimiento mensual
+
+# GitHub apaga las corridas programadas de un repositorio que pasa 60 días sin actividad.
+# Una vez por mes esta corrida: 1) vuelve a habilitar las corridas de datos y 2) deja un commit
+# en la rama main (un archivo con la fecha), que cuenta como actividad.
+on:
+  schedule:
+    - cron: "17 15 1 * *"   # día 1 de cada mes, 12:17 hora Argentina
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  mantener:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Habilitar las corridas de datos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in prices.yml daily.yml prueba.yml mantenimiento.yml; do
+            gh workflow enable "$wf" --repo "$GITHUB_REPOSITORY" || true
+          done
+      - name: Dejar constancia de actividad
+        run: |
+          date -u +%Y-%m-%dT%H:%MZ > .actividad
+          git config user.name "terminal-bot"
+          git config user.email "terminal-bot@users.noreply.github.com"
+          git add .actividad
+          git commit -q -m "mantenimiento: actividad mensual" || exit 0
+          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done

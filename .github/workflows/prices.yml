@@ -2,8 +2,9 @@ name: Precios cada 15 min
 
 on:
   schedule:
-    - cron: "*/15 13-19 * * 1-5"   # 10:00 a 16:45 hora Argentina
-    - cron: "0 20 * * 1-5"         # 17:00 hora Argentina
+    # minutos no redondos: GitHub demora o saltea más las corridas programadas en :00 y :15
+    - cron: "7,22,37,52 13-19 * * 1-5"   # 10:07 a 16:52 hora Argentina
+    - cron: "12 20 * * 1-5"               # 17:12 hora Argentina (cierre)
   workflow_dispatch: {}
 
 permissions:

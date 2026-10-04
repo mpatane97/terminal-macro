@@ -2,7 +2,7 @@ name: Datos diarios
 
 on:
   schedule:
-    - cron: "0 23 * * 1-5"         # 20:00 hora Argentina
+    - cron: "7 23 * * 1-5"         # 20:07 hora Argentina (minuto no redondo, para que GitHub no la saltee)
   workflow_dispatch: {}
 
 permissions:
