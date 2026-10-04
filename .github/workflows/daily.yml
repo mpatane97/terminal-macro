@@ -36,8 +36,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-      - run: pip install -r requirements.txt
+      # uv instala las librerías mucho más rápido que pip y las guarda en caché entre corridas
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - run: uv pip install --system -r requirements.txt
       - name: Bajar datos
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
