@@ -81,6 +81,15 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
                     "<th>VE Adjudicado</th><th>Precio</th><th>TIREA</th></tr><tr><td>LECAP S30N6 (Reapertura)</td><td>$ 5.000.000</td>"
                     "<td>$ 6.085.000</td><td>$ 1.217,00</td><td>29,75%</td></tr></table>")
         return _R
+    if "stats.bis.org" in url:
+        class _B:
+            text = ('FREQ,REF_AREA,COMPILATION,TIME_PERIOD,OBS_VALUE\n'
+                    'D,JP,"From 24 Sep 2026: call rate, around 1.25",2026-09-23,1\n'
+                    'D,JP,"From 24 Sep 2026: call rate, around 1.25",2026-09-29,1.25\n'
+                    'D,BR,"SELIC, target",2026-09-28,13.75\n')
+        return _B
+    if "api.bcb.gov.br" in url:
+        raise RuntimeError("403 desde el exterior (prueba del respaldo)")
     if "indec.gob.ar" in url or "fomccalendars" in url:
         raise RuntimeError("sin red en la prueba")
     if "rava.com/perfil/CAUCION" in url:
