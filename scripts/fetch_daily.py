@@ -521,45 +521,61 @@ def futuros_dolar():
     return {"spot": spot, "contratos": out[:14]}, fuente
 
 
+_MESES_ES = {"ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6, "jul": 7, "ago": 8, "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12}
+
+
+def _fechas_texto(txt, anio):
+    """Todas las fechas de un texto, en orden: 28/10/2026, 28/10/26, 28/10, 28-oct, 28 de octubre (de 2026)."""
+    out = []
+    patron = r"(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?|(\d{1,2})[-\s](?:de\s+)?([a-záéíóú]{3,10})\.?(?:[-\s](?:de\s+)?(\d{4}))?"
+    for m in re.finditer(patron, txt, re.I):
+        try:
+            if m.group(1):
+                y = int(m.group(3)) if m.group(3) else anio
+                out.append(date(y + 2000 if y < 100 else y, int(m.group(2)), int(m.group(1))))
+            else:
+                mm = _MESES_ES.get(m.group(5)[:3].lower())
+                if mm:
+                    out.append(date(int(m.group(6)) if m.group(6) else anio, mm, int(m.group(4))))
+        except ValueError:
+            pass
+    return out
+
+
 def _licitaciones():
-    """Fechas de licitación del Tesoro, del cronograma anual de la Secretaría de Finanzas."""
+    """Fechas de licitación del Tesoro, del cronograma anual de la Secretaría de Finanzas: tabla de la página
+    o, si la página sólo enlaza el PDF, el PDF. Cada fila trae llamado, licitación y liquidación."""
+    import indec
+    from urllib.parse import urljoin
     hoy = today_ar()
     ev = []
     for anio in (hoy.year, hoy.year + 1):
+        url = f"https://www.argentina.gob.ar/economia/finanzas/licitaciones-de-letras-y-bonos-del-tesoro/cronograma-{anio}"
         try:
-            html = http_get(f"https://www.argentina.gob.ar/economia/finanzas/licitaciones-de-letras-y-bonos-del-tesoro/cronograma-{anio}",
-                            as_json=False, timeout=30).text
+            html = http_get(url, as_json=False, timeout=30).text
         except Exception as e:  # noqa: BLE001
             log.warning("cronograma licitaciones %s: %s", anio, e)
             continue
-        meses = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre"
-        mnum = {m: i for i, m in enumerate(meses.replace("setiembre|", "").split("|"), 1)}
-        mnum["setiembre"] = 9
-
-        def fechas(txt):
-            out = []
-            for m in re.finditer(rf"(\d{{1,2}})/(\d{{1,2}})(?:/(\d{{2,4}}))?|(\d{{1,2}}) de ({meses})(?: de (\d{{4}}))?", txt, re.I):
+        renglones = []
+        for f in re.findall(r"<tr.*?</tr>", html, flags=re.S | re.I):
+            renglones.append(" | ".join(re.sub(r"<[^>]+>", " ", c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", f, flags=re.S | re.I)))
+        if not any(len(_fechas_texto(r, anio)) >= 2 for r in renglones):
+            for pdf in dict.fromkeys(re.findall(r'href="([^"]+\.pdf)"', html, re.I)):
                 try:
-                    if m.group(1):
-                        y = int(m.group(3)) if m.group(3) else anio
-                        out.append(date(y + 2000 if y < 100 else y, int(m.group(2)), int(m.group(1))))
-                    else:
-                        out.append(date(int(m.group(6)) if m.group(6) else anio, mnum[m.group(5).lower()], int(m.group(4))))
-                except ValueError:
-                    pass
-            return out
-        filas = re.findall(r"<tr.*?</tr>", html, flags=re.S | re.I)
-        for f in filas:
-            celdas = [re.sub(r"<[^>]+>", " ", c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", f, flags=re.S | re.I)]
-            fs = [x for c in celdas for x in fechas(c)]
-            # columnas: llamado, licitación, liquidación (si hay tres fechas, la del medio es la licitación)
+                    texto = indec._texto_pdf(http_get(urljoin(url, pdf), as_json=False, timeout=30).content)
+                    (HIST / f"licitaciones_{anio}.txt").write_text(texto, encoding="utf-8")
+                    renglones += texto.splitlines()
+                except Exception as e:  # noqa: BLE001
+                    log.warning("cronograma PDF %s: %s", pdf, e)
+        for r in renglones:
+            fs = _fechas_texto(r, anio)
             if len(fs) >= 3:
                 lic, liq = fs[1], fs[2]
             elif len(fs) == 2:
                 lic, liq = fs[0], fs[1]
             else:
                 continue
-            if lic >= hoy:
+            if lic >= hoy and 0 <= (liq - lic).days <= 7:
                 ev.append({"fecha": lic.isoformat(), "hora": "15:00", "evento": f"Licitación del Tesoro (liquida {liq.strftime('%d/%m')})", "tipo": "licitacion"})
     vistos = set()
     return [e for e in sorted(ev, key=lambda x: x["fecha"]) if not (e["fecha"] in vistos or vistos.add(e["fecha"]))]
@@ -660,12 +676,7 @@ def feriados_block():
 def cer_auto():
     """Altas automáticas de bonos y letras CER cero cupón (TZX…, X…)."""
     import lecaps
-    tickers = []
-    for path in ("/live/arg_bonds", "/live/arg_notes"):
-        try:
-            tickers += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=25) if r.get("symbol")]
-        except Exception as e:  # noqa: BLE001
-            log.warning("data912 %s: %s", path, e)
+    tickers = _tickers_d912()
     if not tickers:
         raise RuntimeError("data912 no devolvió tickers")
     lst = _bcra_list()
@@ -704,15 +715,33 @@ def avisos():
     return out, "controles propios"
 
 
+import threading
+_lock912 = threading.Lock()
+_cache912 = {}
+
+
+def _tickers_d912():
+    """Lista de tickers de bonos y letras de data912, pedida una sola vez por corrida (varios bloques la usan
+    en paralelo y data912 corta si recibe muchos pedidos juntos)."""
+    with _lock912:
+        if "t" not in _cache912:
+            t = []
+            for path in ("/live/arg_notes", "/live/arg_bonds"):
+                for intento in range(3):
+                    try:
+                        t += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=30) if r.get("symbol")]
+                        break
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("data912 %s (intento %s): %s", path, intento + 1, e)
+                        time.sleep(5 * (intento + 1))
+            _cache912["t"] = t
+        return list(_cache912["t"])
+
+
 def lecaps_auto():
     """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
     import lecaps
-    tickers = []
-    for path in ("/live/arg_notes", "/live/arg_bonds"):
-        try:
-            tickers += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=25) if r.get("symbol")]
-        except Exception as e:  # noqa: BLE001
-            log.warning("data912 %s: %s", path, e)
+    tickers = _tickers_d912()
     if not tickers:
         raise RuntimeError("data912 no devolvió tickers")
     manuales = BONOS.get("pago_final_pesos", {})
