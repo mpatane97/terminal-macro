@@ -338,7 +338,7 @@
         { name: "Ley Argentina", cls: "s2", fit: true, points: ar.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR %", title: "Curva de bonos en dólares" })
       + `<div class="note">Precio por 100 VN en dólares MEP, liquidación ${dmy(arm.liquidacion)}. Línea: ajuste logarítmico de cada curva. Próx. pago: días y monto por 100 VN.</div>`, { src: "" });
-    return `<div class="cols-split"><div class="view">${tablas}</div><div class="sticky">${grafico}</div></div>
+    return `${rueda()}<div class="cols-split"><div class="view">${tablas}</div><div class="sticky">${grafico}</div></div>
       ${panel("BOPREAL", table(BH, bop.map(bRow)) + `<div class="note">Serie 1 (A a D): vencimiento 31/10/27. Serie 2028 (A8, B8): sin flujos cargados, se muestra solo el precio.</div>`, { meta: m })}`;
   }
 
@@ -403,7 +403,7 @@
         cau.map((c) => [`${c.plazo} día${c.plazo > 1 ? "s" : ""}`, pct(c.tna), chg(c.d_pb, 0, " pb"), pct(c.tem), pct(c.tea, 1)]))
       + `<div class="note">Tasa colocadora de BYMA. TEM y TEA: renovando la caución al mismo plazo y tasa. Sirve para comparar contra la LECAP más corta.</div>`, { meta: meta(P, "cauciones") });
     const tam = panel("TAMAR", table(["Ticker", "Precio", "Dif"], tamar.map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d)]))), { meta: m });
-    return `${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky view">${curvaPesos}${cauT}</div></div>
+    return `${rueda()}${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky view">${curvaPesos}${cauT}</div></div>
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
       <div class="cols-split"><div class="view">${beT}</div><div>${tam}</div></div>`;
   }
@@ -424,7 +424,7 @@
       + `<div class="note">"vs." = cuánto le ganó (verde) o perdió (rojo) cada acción a su referencia en el período, en pesos. Sector: promedio simple de los otros papeles del panel del mismo sector.</div>`, { lead: true, meta: m });
     const adrs = panel("ADRs en Nueva York", table(["", "USD", "Día", "Sem", "Mes", "Año"], priceRows(mk.adrs, ["d", "w", "m", "y"])), { meta: meta(P, "markets") });
     const ced = panel("CEDEARs", table(["Ticker", "Precio", "Día", "Mes", "MEP implícito", "CCL implícito"], (arm.cedears || []).map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d), chg(r.m), fmt(r.mep, 2), fmt(r.ccl, 2)]))), { meta: m });
-    return `${head}${panelT}<div class="cols-2">${adrs}${ced}</div>`;
+    return `${rueda()}${head}${panelT}<div class="cols-2">${adrs}${ced}</div>`;
   }
 
   function viewEmpresas() {
@@ -582,14 +582,56 @@
     return out;
   }
 
+  // Datos que no tienen sentido (un precio que salta, una tasa imposible): se muestran en el mismo aviso rojo.
+  function sospechosos() {
+    const out = [], a = blk(P, "ar_market") || {}, mk = blk(P, "markets") || {};
+    const cot = (blk(P, "dolares") || {}).cotizaciones || [], ccl = byId(cot, "contadoconliqui").venta;
+    const salto = (r, lim, nombre) => { if (r.d != null && Math.abs(r.d) > lim) out.push(`${nombre || r.ticker}: variación del día de ${fmt(r.d, 1)}%`); };
+    for (const r of [...(a.soberanos || []), ...(a.bopreal || [])]) {
+      salto(r, 15);
+      if (r.tir != null && (r.tir < -5 || r.tir > 40)) out.push(`${r.ticker}: TIR de ${fmt(r.tir, 1)}% fuera de rango`);
+    }
+    for (const r of a.pesos_fija || []) {
+      salto(r, 10);
+      if (r.tem != null && (r.tem < 0.3 || r.tem > 8)) out.push(`${r.ticker}: TEM de ${fmt(r.tem, 2)}% fuera de rango`);
+    }
+    for (const r of (a.cer_tamar || []).filter((x) => x.tipo === "CER")) {
+      salto(r, 10);
+      if (r.tir != null && (r.tir < -20 || r.tir > 40)) out.push(`${r.ticker}: TIR real de ${fmt(r.tir, 1)}% fuera de rango`);
+    }
+    for (const r of [...(a.panel_lider || []), ...(a.cedears || [])]) salto(r, 25);
+    for (const r of a.cedears || []) if (r.ccl && ccl && Math.abs(r.ccl / ccl - 1) > 0.1) out.push(`${r.ticker}: CCL implícito ${fmt(r.ccl, 0)} lejos del CCL ${fmt(ccl, 0)}`);
+    for (const r of cot) if (r.d != null && Math.abs(r.d) > 10) out.push(`Dólar ${r.nombre}: variación del día de ${fmt(r.d, 1)}%`);
+    for (const [g, arr] of Object.entries(mk)) for (const r of arr || []) salto(r, g === "cripto" ? 30 : 25, r.nombre);
+    const rp = blk(D, "riesgo_pais") || {};
+    if (rp.d != null && Math.abs(rp.d) > 25) out.push(`Riesgo país: variación del día de ${fmt(rp.d, 1)}%`);
+    return out;
+  }
+
+  // Estado de la rueda en BYMA (11 a 17 h): para saber si los precios argentinos son de hoy o del último cierre.
+  function estadoRueda() {
+    const ahora = new Date(), tz = "America/Argentina/Buenos_Aires";
+    const hoy = ahora.toLocaleDateString("en-CA", { timeZone: tz });
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(ahora).map((x) => [x.type, x.value]));
+    const fer = new Set(((blk(D, "feriados") || {}).ar || []).map((f) => f.fecha));
+    const habil = (iso) => { const d = new Date(iso + "T12:00:00-03:00").getUTCDay(); return d !== 0 && d !== 6 && !fer.has(iso); };
+    const ultimoHabil = (iso) => { let d = new Date(iso + "T12:00:00-03:00"); do { d = new Date(d.getTime() - 864e5); } while (!habil(d.toISOString().slice(0, 10))); return d.toISOString().slice(0, 10); };
+    const mins = (+p.hour % 24) * 60 + +p.minute;
+    if (!habil(hoy)) return `Hoy no hay rueda${fer.has(hoy) ? " (feriado)" : ""} · precios del cierre del ${dmy(ultimoHabil(hoy))}`;
+    if (mins < 660) return `Antes de la apertura (11 h) · precios del cierre del ${dmy(ultimoHabil(hoy))}`;
+    if (mins < 1020) return `Rueda en curso · precios con demora, actualizados ${hhmm(P.generated)} · "s/op" = no operó hoy`;
+    return `Rueda cerrada · precios del cierre de hoy (${dmy(hoy)})`;
+  }
+  const rueda = () => `<div class="strip rueda"><span><b>BYMA</b> ${esc(estadoRueda())}</span></div>`;
+
   function render() {
     try { $("#view").innerHTML = VIEWS[current](); }
     catch (e) { $("#view").innerHTML = `<div class="empty">Error al dibujar la pestaña: ${esc(e.message)}</div>`; console.error(e); }
     document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.v === current));
     const stale = [...Object.entries(P), ...Object.entries(D)].filter(([k, v]) => v && v.stale).map(([k]) => NOMBRES[k] || k);
-    const prob = problemas();
+    const prob = [...problemas(), ...sospechosos()];
     $("#status").innerHTML = `<span>Precios ${hhmm(P.generated)}</span><span>Diario ${hhmm(D.generated)}</span>`
-      + (prob.length ? `<button class="alerta" title="${esc(prob.join("\n"))}" aria-label="Datos desactualizados">! ${prob.length === 1 ? "1 dato desactualizado" : `${prob.length} datos desactualizados`}</button>`
+      + (prob.length ? `<button class="alerta" title="${esc(prob.join("\n"))}" aria-label="Datos a revisar">! ${prob.length === 1 ? "1 dato a revisar" : `${prob.length} datos a revisar`}</button>`
         : stale.length ? `<span class="bad" title="${esc(stale.join(", "))}">${stale.length} fuente(s) sin responder en la última corrida</span>` : "");
   }
 
@@ -629,7 +671,13 @@
   document.addEventListener("click", (e) => {
     const b = e.target.closest(".alerta"); if (!b) return;
     const box = $("#alertas");
-    if (box.hidden) { box.innerHTML = `<b>Datos desactualizados hace más de 2 días hábiles</b><ul>${problemas().map((x) => `<li>${esc(x)}</li>`).join("")}</ul><div class="note">Se siguen mostrando los últimos datos válidos. Cuando la fuente vuelva a responder, el aviso desaparece solo.</div>`; box.hidden = false; }
+    if (box.hidden) {
+      const viejos = problemas(), raros = sospechosos();
+      box.innerHTML = (viejos.length ? `<b>Desactualizados hace más de 2 días hábiles</b><ul>${viejos.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
+        + (raros.length ? `<b>Valores que no tienen sentido</b><ul>${raros.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
+        + `<div class="note">Se siguen mostrando los últimos datos. Los desactualizados desaparecen cuando la fuente vuelve a responder; los valores raros pueden ser un error de la fuente o un movimiento real fuerte: conviene chequearlos antes de usarlos.</div>`;
+      box.hidden = false;
+    }
     else box.hidden = true;
   });
   document.addEventListener("click", (e) => {

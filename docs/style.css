@@ -178,3 +178,4 @@ tr.clic td:first-child { text-decoration: underline dotted color-mix(in srgb, va
 .ficha .cerrar { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer; }
 .ficha .cerrar:hover { color: var(--fg); }
 .ficha-caja h3 { margin: 0; padding: 10px 12px 2px; font: 600 11px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.strip.rueda { padding: 6px 14px; font-size: 12px; }
