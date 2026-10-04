@@ -90,7 +90,7 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | Licitaciones del Tesoro | PDF del cronograma de Finanzas | — | anuncios "Llamado a licitación" |
 | Resultado de licitaciones | Noticias de la Secretaría de Finanzas (tablas del resultado) | — | comunicado del Ministerio de Economía |
 | Dólar linked | data912.com (precios) + A3500 del BCRA | BYMA open data | — |
-| Tasas de política (Fed, BCE, BoE, BoJ, Selic) | FRED, Bank of England, Banco Central do Brasil | — | páginas de cada banco central |
+| Tasas de política (Fed, BCE, BoE, BoJ, Selic) | FRED (Fed, BCE), Bank of England, BIS (BoJ), Banco Central do Brasil (Selic) | Selic: BIS | páginas de cada banco central |
 | Condiciones de LECAP/BONCAP nuevas | Ficha técnica de BYMA | Resultado de licitación de Finanzas | carga en `bonos.json` |
 | Condiciones de CER nuevos | Ficha técnica de BYMA + CER del BCRA | — | carga en `bonos.json` |
 | Calendario EE.UU. e internacional | Forex Factory | — | Investing (sin API) |
