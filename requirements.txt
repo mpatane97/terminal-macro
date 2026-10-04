@@ -1,7 +1,8 @@
-requests>=2.31
-yfinance>=0.2.58
-pandas>=2.0
-feedparser>=6.0
-openpyxl>=3.1
-holidays>=0.60
-pdfplumber>=0.11
+# Versiones fijas: las que funcionan hoy. Se actualizan a propósito, no solas.
+requests==2.34.2
+yfinance==1.7.0
+pandas==3.0.6
+feedparser==6.0.14
+openpyxl==3.1.5
+holidays==0.105
+pdfplumber==0.11.10

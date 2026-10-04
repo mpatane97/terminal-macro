@@ -16,13 +16,16 @@ fuentes públicas ──► GitHub Actions (scripts/*.py) ──► rama "datos"
 
 | Corrida (Actions) | Cuándo (hora Argentina) | Qué hace | Tarda |
 | --- | --- | --- | --- |
-| **Precios cada 15 min** | lun a vie, 10:00 a 17:00 | `scripts/fetch_prices.py` → `prices.json` | ~20 s |
-| **Datos diarios** | lun a vie, 20:00 | `scripts/fetch_daily.py` → `daily.json` | ~1 min |
+| **Precios cada 15 min** | lun a vie, 10:07 a 17:12 | `scripts/fetch_prices.py` → `prices.json` | ~20 s |
+| **Datos diarios** | lun a vie, 20:07 | `scripts/fetch_daily.py` → `daily.json` | ~1 min |
+| **Prueba** | cada vez que se sube algo a `main` | `tests/regresion.py` + `tests/mock_run.py`: si falla, GitHub manda un mail | ~1 min |
+| **Mantenimiento mensual** | día 1 de cada mes | reactiva las corridas y deja un commit, para que GitHub no las apague por inactividad | segundos |
 
 - **Rama `main`**: el código. Solo cambia cuando se sube una actualización.
 - **Rama `datos`**: los datos. Cada corrida la reescribe con un único commit, así el repositorio no crece.
 - Cada fuente es un "bloque" independiente que corre en paralelo con los demás. Si una fuente falla, ese bloque conserva su último dato válido marcado como viejo (punto amarillo en el panel), y el resto se actualiza igual.
-- Si un dato lleva más de 2 días hábiles sin actualizarse, arriba a la derecha aparece el aviso rojo **"! N datos desactualizados"** con el detalle.
+- Arriba a la derecha aparece el aviso rojo **"! N datos a revisar"** si un dato lleva más de 2 días hábiles sin actualizarse o si un valor no tiene sentido (un bono que salta más de 15% en el día, una TEM o TIR fuera de rango, un CCL implícito lejos del CCL).
+- Las librerías tienen versión fija en `requirements.txt`: se actualizan a propósito, no solas.
 
 GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el repositorio pasa 60 días sin cambios, GitHub desactiva las corridas programadas; se reactivan desde la pestaña Actions.
 
