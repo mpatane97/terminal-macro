@@ -416,16 +416,24 @@ def megacaps_info():
     import yfinance as yf
     tasas = {"SAR": 1 / 3.75}
     out = {}
-    for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion"):
-        for it in CFG["mercados"].get(g, []):
-            try:
-                fi = yf.Ticker(it["yahoo"]).fast_info
-                cap = getattr(fi, "market_cap", None)
-                cur = (getattr(fi, "currency", None) or "USD").upper()
-                if cap:
-                    out[it["id"]] = cap * tasas.get(cur, 1.0) / 1e9 if cur in tasas or cur == "USD" else None
-            except Exception as e:  # noqa: BLE001
-                log.warning("market cap %s: %s", it["id"], e)
+    from concurrent.futures import ThreadPoolExecutor
+
+    def una(it):
+        try:
+            fi = yf.Ticker(it["yahoo"]).fast_info
+            cap = getattr(fi, "market_cap", None)
+            cur = (getattr(fi, "currency", None) or "USD").upper()
+            if cap:
+                return it["id"], (cap * tasas.get(cur, 1.0) / 1e9 if cur in tasas or cur == "USD" else None)
+        except Exception as e:  # noqa: BLE001
+            log.warning("market cap %s: %s", it["id"], e)
+        return it["id"], None
+
+    items = [it for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion") for it in CFG["mercados"].get(g, [])]
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for k, v in ex.map(una, items):
+            if v is not None:
+                out[k] = v
     if not out:
         raise RuntimeError("sin capitalizaciones")
     return out, "Yahoo Finance (yfinance), miles de millones de USD"
@@ -456,6 +464,138 @@ def calendar_us():
     return out, "Forex Factory (secundaria)"
 
 
+def _vto_futuro(simbolo):
+    """DLR102026 vence el último día hábil de octubre de 2026."""
+    import feriados
+    m = re.fullmatch(r"DLR(\d{2})(\d{4})", simbolo)
+    if not m:
+        return None
+    mes, anio = int(m.group(1)), int(m.group(2))
+    d = (date(anio + (mes == 12), mes % 12 + 1, 1) - timedelta(days=1))
+    while not feriados.es_habil(d):
+        d -= timedelta(days=1)
+    return d
+
+
+def futuros_dolar():
+    """Dólar futuro de A3 (ex Matba-Rofex): precios de cierre oficiales y tasas implícitas contra el mayorista."""
+    hoy = today_ar()
+    filas = []
+    try:
+        js = http_get("https://apicem.matbarofex.com.ar/api/v2/closing-prices",
+                      params={"product": "DLR", "segment": "Monedas", "type": "FUT", "excludeEmptyVol": "false",
+                              "from": (hoy - timedelta(days=10)).isoformat(), "to": hoy.isoformat(),
+                              "page": 1, "pageSize": 500, "sortDir": "ASC"}, timeout=30)
+        ultimo = {}
+        for r in js.get("data", []):
+            sym = r.get("symbol", "")
+            if re.fullmatch(r"DLR\d{6}", sym) and (r.get("settlement") or r.get("close")):
+                if sym not in ultimo or r["dateTime"] > ultimo[sym]["dateTime"]:
+                    ultimo[sym] = r
+        filas = [{"especie": k, "precio": num(v.get("settlement") or v.get("close")), "fecha": v["dateTime"][:10],
+                  "vol": v.get("volume"), "interes_abierto": num(v.get("openInterest")), "var": num(v.get("changePercent"))}
+                 for k, v in ultimo.items()]
+        fuente = "A3 Mercados (cierres oficiales)"
+    except Exception as e:  # noqa: BLE001
+        log.warning("futuros A3: %s", e)
+    if not filas:
+        raise RuntimeError("A3 no devolvió contratos de dólar futuro")
+    # dólar base: mayorista A3500 (último dato del BCRA)
+    try:
+        spot = _bcra_series(5, days=10)[-1][1]
+    except Exception:  # noqa: BLE001
+        spot = None
+    out = []
+    for f in filas:
+        vto = _vto_futuro(f["especie"])
+        if not vto or vto < hoy:
+            continue
+        dias = (vto - hoy).days
+        f.update({"vto": vto.isoformat(), "dias": dias})
+        if spot and f["precio"] and dias > 0:
+            r = f["precio"] / spot
+            f.update({"tasa_efectiva": (r - 1) * 100, "tna": (r - 1) * 365 / dias * 100, "tea": (r ** (365 / dias) - 1) * 100,
+                      "tem": (r ** (30 / dias) - 1) * 100})
+        out.append(f)
+    out.sort(key=lambda x: x["vto"])
+    return {"spot": spot, "contratos": out[:14]}, fuente
+
+
+def _licitaciones():
+    """Fechas de licitación del Tesoro, del cronograma anual de la Secretaría de Finanzas."""
+    hoy = today_ar()
+    ev = []
+    for anio in (hoy.year, hoy.year + 1):
+        try:
+            html = http_get(f"https://www.argentina.gob.ar/economia/finanzas/licitaciones-de-letras-y-bonos-del-tesoro/cronograma-{anio}",
+                            as_json=False, timeout=30).text
+        except Exception as e:  # noqa: BLE001
+            log.warning("cronograma licitaciones %s: %s", anio, e)
+            continue
+        meses = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre"
+        mnum = {m: i for i, m in enumerate(meses.replace("setiembre|", "").split("|"), 1)}
+        mnum["setiembre"] = 9
+
+        def fechas(txt):
+            out = []
+            for m in re.finditer(rf"(\d{{1,2}})/(\d{{1,2}})(?:/(\d{{2,4}}))?|(\d{{1,2}}) de ({meses})(?: de (\d{{4}}))?", txt, re.I):
+                try:
+                    if m.group(1):
+                        y = int(m.group(3)) if m.group(3) else anio
+                        out.append(date(y + 2000 if y < 100 else y, int(m.group(2)), int(m.group(1))))
+                    else:
+                        out.append(date(int(m.group(6)) if m.group(6) else anio, mnum[m.group(5).lower()], int(m.group(4))))
+                except ValueError:
+                    pass
+            return out
+        filas = re.findall(r"<tr.*?</tr>", html, flags=re.S | re.I)
+        for f in filas:
+            celdas = [re.sub(r"<[^>]+>", " ", c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", f, flags=re.S | re.I)]
+            fs = [x for c in celdas for x in fechas(c)]
+            # columnas: llamado, licitación, liquidación (si hay tres fechas, la del medio es la licitación)
+            if len(fs) >= 3:
+                lic, liq = fs[1], fs[2]
+            elif len(fs) == 2:
+                lic, liq = fs[0], fs[1]
+            else:
+                continue
+            if lic >= hoy:
+                ev.append({"fecha": lic.isoformat(), "hora": "15:00", "evento": f"Licitación del Tesoro (liquida {liq.strftime('%d/%m')})", "tipo": "licitacion"})
+    vistos = set()
+    return [e for e in sorted(ev, key=lambda x: x["fecha"]) if not (e["fecha"] in vistos or vistos.add(e["fecha"]))]
+
+
+def _pagos_deuda():
+    """Pagos de bonos soberanos y BOPREAL (de los flujos cargados) y vencimientos de letras y bonos en pesos."""
+    import bonds
+    hoy = today_ar()
+    lim = hoy + timedelta(days=200)
+    ev = {}
+    import feriados
+    for nombre, fam in BONOS.get("familias", {}).items():
+        for d, c, a in bonds.build_flows(fam):
+            # sólo los pagos grandes: los cupones mensuales chicos (AO27, AO28…) sin amortización no se muestran
+            if hoy <= d <= lim and (a > 0 or not fam.get("fin_de_mes")):
+                while not feriados.es_habil(d):
+                    d += timedelta(days=1)
+                k = ev.setdefault(d.isoformat(), {"tks": set(), "amort": False})
+                k["tks"].update(fam["tickers"]); k["amort"] |= a > 0
+    out = []
+    for f, k in sorted(ev.items()):
+        out.append({"fecha": f, "hora": None, "tipo": "pago",
+                    "evento": f"Pago de bonos en dólares ({'cupón y amortización' if k['amort'] else 'cupón'}): {', '.join(sorted(k['tks']))}"})
+    prices = read_json(DATA / "prices.json", {}) or {}
+    arm = ((prices.get("ar_market") or {}).get("data")) or {}
+    venc = {}
+    for r in (arm.get("pesos_fija") or []) + [x for x in (arm.get("cer_tamar") or []) if x.get("vto")]:
+        v = r.get("vto")
+        if v and hoy.isoformat() <= v <= lim.isoformat():
+            venc.setdefault(v, []).append(r["ticker"])
+    for v, tks in sorted(venc.items()):
+        out.append({"fecha": v, "hora": None, "evento": f"Vencimiento en pesos: {', '.join(tks)}", "tipo": "pago"})
+    return sorted(out, key=lambda e: e["fecha"])
+
+
 def calendar_ar():
     """Calendario del INDEC leído de sus PDF semestrales. Lo cargado a mano en config/calendario_ar.json
     (licitaciones u otros eventos) se suma; si el PDF no responde, queda sólo eso."""
@@ -468,7 +608,21 @@ def calendar_ar():
     eventos = sorted(auto + [e for e in manual if (e["fecha"], tipo(e)) not in claves], key=lambda e: e["fecha"])
     if not eventos:
         raise RuntimeError("sin eventos futuros del INDEC")
+    for e in eventos:
+        e.setdefault("tipo", "indec")
+    try:
+        lic = _licitaciones()
+    except Exception as e:  # noqa: BLE001
+        log.warning("licitaciones: %s", e)
+        lic = []
+    try:
+        pagos = _pagos_deuda()
+    except Exception as e:  # noqa: BLE001
+        log.warning("pagos de deuda: %s", e)
+        pagos = []
+    eventos = sorted(eventos + lic + pagos, key=lambda e: e["fecha"])
     fuente = "INDEC, calendario de difusión (PDF)" if auto else "INDEC (carga manual; el PDF no respondió)"
+    fuente += f" · Finanzas, cronograma de licitaciones ({len(lic)})" + " · pagos: flujos propios"
     return eventos, fuente + (f" · {'; '.join(leidos)}" if leidos else "")
 
 
@@ -568,7 +722,7 @@ def lecaps_auto():
 
 
 if __name__ == "__main__":
-    run_blocks(DATA / "daily.json", {
+    run_blocks(DATA / "daily.json", primero=("feriados",), builders={
         "feriados": feriados_block,   # primero: los cálculos de días hábiles lo usan
         "us_macro": us_macro,
         "fed": fed,
@@ -589,6 +743,7 @@ if __name__ == "__main__":
         "earnings": earnings,
         "lecaps_auto": lecaps_auto,
         "cer_auto": cer_auto,
+        "futuros_dolar": futuros_dolar,
         "avisos": avisos,
     })
     log.info("daily.json actualizado %s", now_iso())

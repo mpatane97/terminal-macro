@@ -162,3 +162,19 @@ def tem(price, payoff, settle, maturity):
     tirea = g ** (365 / days) - 1
     tna = (g - 1) * 365 / days
     return {"tem": tem_ * 100, "tirea": tirea * 100, "tna": tna * 100, "dias": days}
+
+
+def tabla_flujos(flows, settle, coef=1.0):
+    """Flujos futuros por 100 VN original, al estilo bonistas: fecha de pago (corrida al día hábil siguiente
+    si cae en feriado o fin de semana), saldo antes del pago, cupón, amortización y total.
+    `coef` multiplica todo (para bonos CER: capital ajustado por el CER de hoy)."""
+    import feriados
+    out, saldo = [], 100.0
+    for d, c, a in flows:
+        if d > settle:
+            pago = d
+            while not feriados.es_habil(pago):
+                pago += timedelta(days=1)
+            out.append([pago.isoformat(), round(saldo * coef, 4), round(c * coef, 4), round(a * coef, 4), round((c + a) * coef, 4)])
+        saldo -= a
+    return out

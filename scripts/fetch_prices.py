@@ -24,7 +24,7 @@ def markets():
     groups = CFG["mercados"]
     tickers = sorted({i["yahoo"] for g in groups.values() for i in g})
     df = yf.download(tickers, period="13mo", interval="1d", group_by="ticker", auto_adjust=False,
-                     threads=False, progress=False)
+                     threads=8, progress=False)
     if df is None or df.empty:
         raise RuntimeError("Yahoo devolvió vacío")
     out = {}
@@ -159,8 +159,9 @@ def ar_market():
         row = {"ticker": t, "ars": num(ars.get("c")) if ars else None, "usd": p_usd,
                "d": num(usd.get("pct_change")) if usd else None, "vol": vol / 1e6 if vol else None,
                **_chg(hist, _usd_ticker(t), p_usd)}
-        if t in flows_by_ticker and p_usd:
-            m = bonds.bond_metrics(flows_by_ticker[t], p_usd, settle)
+        if t in flows_by_ticker:
+            row["flujos"] = bonds.tabla_flujos(flows_by_ticker[t], settle)
+            m = bonds.bond_metrics(flows_by_ticker[t], p_usd, settle) if p_usd else None
             if m:
                 row.update(m)
         if t in a["soberanos_usd"]:
@@ -186,6 +187,9 @@ def ar_market():
         t = bonds.tem(p, payoffs.get(sym), settle, mat)
         if t:
             row.update(t)
+        if payoffs.get(sym):  # un único pago al vencimiento: capital 100 + interés capitalizado
+            pf = num(payoffs[sym])
+            row["flujos"] = [[mat.isoformat(), 100.0, round(pf - 100, 4), 100.0, round(pf, 4)]]
         pesos.append(row)
     pesos.sort(key=lambda r: r["vto"])
 
@@ -261,6 +265,9 @@ def _cer_tamar(px, settle, a):
         if fam:
             fl = bonds.build_flows(fam)
             row["vto"] = fl[-1][0].isoformat()
+            if cer_t10:
+                row["flujos"] = bonds.tabla_flujos(fl, settle, cer_t10 / fam["cer_inicial"])
+                row["coef_cer"] = cer_t10 / fam["cer_inicial"]
             if p and cer_t10:
                 coef = cer_t10 / fam["cer_inicial"]
                 m = bonds.bond_metrics(fl, p / coef, settle)

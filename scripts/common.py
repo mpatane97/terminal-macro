@@ -96,17 +96,32 @@ class Block:
         return {"data": None, "source": None, "updated": None, "stale": True, "error": str(err)[:200]}
 
 
-def run_blocks(path, builders):
-    """Ejecuta cada constructor de bloque de forma aislada y escribe el archivo resultante."""
+def run_blocks(path, builders, primero=(), hilos=6):
+    """Ejecuta cada constructor de bloque de forma aislada y escribe el archivo resultante.
+    Los de `primero` corren antes y en orden (otros dependen de ellos); el resto corre en paralelo,
+    porque casi todo el tiempo es espera de red."""
+    from concurrent.futures import ThreadPoolExecutor
     previous = read_json(path, {}) or {}
     out = {"generated": now_iso()}
-    for name, fn in builders.items():
+
+    def correr(name):
         b = Block(name, previous)
+        t0 = time.time()
         try:
-            data, source = fn()
-            out[name] = b.ok(data, source)
+            data, source = builders[name]()
+            r = b.ok(data, source)
         except Exception as e:  # noqa: BLE001
-            out[name] = b.fail(e)
+            r = b.fail(e)
+        log.info("bloque %s: %.1f s", name, time.time() - t0)
+        return r
+
+    for name in primero:
+        out[name] = correr(name)
+    resto = [n for n in builders if n not in primero]
+    with ThreadPoolExecutor(max_workers=hilos) as ex:
+        for name, r in zip(resto, ex.map(correr, resto)):
+            out[name] = r
+    out = {"generated": out["generated"], **{n: out[n] for n in builders}}
     write_json(path, out)
     return out
 
