@@ -20,37 +20,88 @@ D912 = "https://data912.com"
 
 # ---------- Mercados internacionales (Yahoo Finance vía yfinance) ----------
 
+# Respaldo de Yahoo: Stooq (CSV diario gratis). Equivalencias de símbolos que no siguen la regla "acción.us".
+STOOQ = {"^GSPC": "^spx", "^NDX": "^ndx", "^DJI": "^dji", "ES=F": "es.f", "NQ=F": "nq.f", "YM=F": "ym.f",
+         "^STOXX50E": "^stx", "^GDAXI": "^dax", "^FTSE": "^ukx", "^N225": "^nkx", "000001.SS": "^shc", "^HSI": "^hsi",
+         "^BVSP": "^bvp", "DX-Y.NYB": "dx.f", "EURUSD=X": "eurusd", "JPY=X": "usdjpy", "GBPUSD=X": "gbpusd",
+         "CNY=X": "usdcny", "BRL=X": "usdbrl", "CL=F": "cl.f", "BZ=F": "cb.f", "GC=F": "gc.f", "SI=F": "si.f",
+         "ZS=F": "zs.f", "ZW=F": "zw.f", "ZC=F": "zc.f", "BTC-USD": "btcusd"}
+
+
+def _stooq(yahoo):
+    """Serie diaria de 13 meses desde Stooq, o [] si no hay equivalente o no responde."""
+    sym = STOOQ.get(yahoo)
+    if not sym:
+        if re.fullmatch(r"[A-Z][A-Z.\-]{0,6}", yahoo):  # acción o ETF de EE.UU.
+            sym = yahoo.lower().replace(".", "-") + ".us"
+        else:
+            return []
+    hoy = today_ar()
+    d1 = (hoy - pd.Timedelta(days=400)).strftime("%Y%m%d")
+    try:
+        txt = http_get("https://stooq.com/q/d/l/", params={"s": sym, "i": "d", "d1": d1, "d2": hoy.strftime("%Y%m%d")},
+                       as_json=False, timeout=20, retries=1).text
+    except Exception as e:  # noqa: BLE001
+        log.warning("Stooq %s: %s", sym, e)
+        return []
+    out = []
+    for linea in txt.strip().splitlines()[1:]:
+        partes = linea.split(",")
+        if len(partes) >= 5 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", partes[0]) and num(partes[4]):
+            out.append((partes[0], num(partes[4])))
+    return out
+
+
 def markets():
+    from concurrent.futures import ThreadPoolExecutor
     groups = CFG["mercados"]
     tickers = sorted({i["yahoo"] for g in groups.values() for i in g})
-    df = yf.download(tickers, period="13mo", interval="1d", group_by="ticker", auto_adjust=False,
-                     threads=8, progress=False)
-    if df is None or df.empty:
-        raise RuntimeError("Yahoo devolvió vacío")
+    try:
+        df = yf.download(tickers, period="13mo", interval="1d", group_by="ticker", auto_adjust=False,
+                         threads=8, progress=False)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Yahoo: %s", e)
+        df = None
+    series_por = {}
+    for t in tickers:
+        try:
+            s = df[t]["Close"].dropna() if df is not None and not df.empty else pd.Series(dtype=float)
+        except KeyError:
+            s = pd.Series(dtype=float)
+        if not s.empty:
+            series_por[t] = [(d.strftime("%Y-%m-%d"), float(v)) for d, v in s.items()]
+    faltan = [t for t in tickers if t not in series_por]
+    de_stooq = []
+    if faltan:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for t, serie in zip(faltan, ex.map(_stooq, faltan)):
+                if serie:
+                    series_por[t] = serie
+                    de_stooq.append(t)
     out = {}
     missing = []
     for gname, items in groups.items():
         rows = []
         for it in items:
-            try:
-                s = df[it["yahoo"]]["Close"].dropna()
-            except KeyError:
-                s = pd.Series(dtype=float)
-            if s.empty:
+            series = series_por.get(it["yahoo"])
+            if not series:
                 missing.append(it["yahoo"])
                 rows.append({**_meta(it), "last": None})
                 continue
-            series = [(d.strftime("%Y-%m-%d"), float(v)) for d, v in s.items()]
             ch = changes_from_series(series)
             ultimos = [v for _, v in series[-252:]]
             ch["dd52"] = (ch["last"] / max(ultimos) - 1) * 100 if ultimos else None
             rows.append({**_meta(it), **ch})
         out[gname] = rows
     if len(missing) > len(tickers) / 2:
-        raise RuntimeError(f"Yahoo sin datos para {len(missing)} de {len(tickers)} símbolos")
+        raise RuntimeError(f"Yahoo y Stooq sin datos para {len(missing)} de {len(tickers)} símbolos")
     if missing:
-        log.warning("Yahoo sin datos: %s", missing)
-    return out, "Yahoo Finance (yfinance), demora ~15 min"
+        log.warning("sin datos: %s", missing)
+    fuente = "Yahoo Finance (yfinance), demora ~15 min"
+    if de_stooq:
+        fuente += f" · respaldo Stooq para {len(de_stooq)} símbolo(s)"
+        log.warning("Stooq usado para: %s", de_stooq)
+    return out, fuente
 
 
 def _meta(it):
@@ -59,8 +110,26 @@ def _meta(it):
 
 # ---------- Dólares (dolarapi) ----------
 
+def _dolares_argentinadatos():
+    """Respaldo: último dato de cada casa en argentinadatos, con el mismo formato que dolarapi."""
+    rows = http_get("https://api.argentinadatos.com/v1/cotizaciones/dolares", timeout=40)
+    ult = {}
+    for r in rows:
+        if r.get("casa") and (r["casa"] not in ult or r["fecha"] > ult[r["casa"]]["fecha"]):
+            ult[r["casa"]] = r
+    return [{"casa": k, "compra": v.get("compra"), "venta": v.get("venta"), "fechaActualizacion": v.get("fecha")} for k, v in ult.items()]
+
+
 def dolares():
-    rows = http_get("https://dolarapi.com/v1/dolares")
+    fuente = "dolarapi.com (secundaria)"
+    try:
+        rows = http_get("https://dolarapi.com/v1/dolares")
+        if not rows or not any(r.get("casa") == "mayorista" for r in rows):
+            raise RuntimeError("dolarapi sin mayorista")
+    except Exception as e:  # noqa: BLE001
+        log.warning("dolarapi: %s; uso argentinadatos", e)
+        rows = _dolares_argentinadatos()
+        fuente = "argentinadatos.com (respaldo; dolarapi no respondió)"
     by = {r["casa"]: r for r in rows}
     hist = read_json(HIST / "dolares.json", {}) or {}
     names = [("mayorista", "Mayorista (A3500)"), ("bolsa", "MEP"), ("contadoconliqui", "CCL"),
@@ -83,13 +152,69 @@ def dolares():
         "mep_a3500": pct(v.get("bolsa"), a3500),
         "ccl_mep": pct(v.get("contadoconliqui"), v.get("bolsa")),
     }
-    return {"cotizaciones": out, "brechas": brechas}, "dolarapi.com (secundaria)"
+    return {"cotizaciones": out, "brechas": brechas}, fuente
 
 
 # ---------- Mercado argentino (data912) ----------
 
+BYMA_FREE = "https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free"
+# panel de BYMA equivalente a cada lista de data912 (mep/ccl implícitos no tienen equivalente)
+BYMA_PANELES = {"/live/arg_bonds": ["public-bonds"], "/live/arg_notes": ["lebacs"],
+                "/live/arg_stocks": ["leading-equity", "general-equity"], "/live/arg_cedears": ["cedears"]}
+RESPALDOS = set()  # qué listas vinieron de BYMA en esta corrida
+
+
+def _byma_panel(panel):
+    import requests
+    from common import UA
+    verify = True
+    for intento in range(2):
+        try:
+            r = requests.post(f"{BYMA_FREE}/{panel}", json={"page_size": 5000, "Content-Type": "application/json"},
+                              headers={**UA, "Content-Type": "application/json"}, timeout=25, verify=verify)
+            r.raise_for_status()
+            js = r.json()
+            return js if isinstance(js, list) else (js.get("data") or [])
+        except requests.exceptions.SSLError:
+            verify = False
+        except Exception as e:  # noqa: BLE001
+            if intento:
+                raise
+            log.warning("BYMA %s: %s", panel, e)
+
+
+def _desde_byma(path):
+    """Lista con el formato de data912 (symbol, c, pct_change, v) armada con los paneles públicos de BYMA.
+    Se prefiere la liquidación a 24 h; si un papel sólo opera en contado, se toma esa."""
+    filas = {}
+    for panel in BYMA_PANELES.get(path, []):
+        for it in _byma_panel(panel) or []:
+            sym, liq = it.get("symbol"), str(it.get("settlementType"))
+            if not sym or liq not in ("1", "2"):
+                continue
+            if sym in filas and not (filas[sym]["_liq"] == "1" and liq == "2"):
+                continue
+            ult = it.get("trade") or it.get("closingPrice") or it.get("previousClosingPrice")
+            prev = it.get("previousClosingPrice")
+            filas[sym] = {"symbol": sym, "c": ult, "v": it.get("volumeAmount") or it.get("volume") or 0, "_liq": liq,
+                          "pct_change": (ult / prev - 1) * 100 if ult and prev else None}
+    if not filas:
+        raise RuntimeError(f"BYMA sin datos para {path}")
+    return list(filas.values())
+
+
 def _d912(path):
-    return http_get(f"{D912}{path}", timeout=25)
+    try:
+        rows = http_get(f"{D912}{path}", timeout=25)
+        if not isinstance(rows, list) or not rows:
+            raise RuntimeError("respuesta vacía")
+        return rows
+    except Exception as e:  # noqa: BLE001
+        if path not in BYMA_PANELES:
+            raise
+        log.warning("data912 %s: %s; uso BYMA", path, e)
+        RESPALDOS.add(path)
+        return _desde_byma(path)
 
 
 def _ajustar_splits(serie):
@@ -205,8 +330,14 @@ def ar_market():
               "vol": _vol(stocks.get(t)), **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a.get("panel_lider", [])])
 
     ced = {r["symbol"]: r for r in _d912("/live/arg_cedears")}
-    mep = {r.get("ticker"): r for r in _d912("/live/mep")}
-    ccl = {r.get("ticker_ar") or r.get("ticker"): r for r in _d912("/live/ccl")}
+    def opcional(path):  # MEP/CCL implícitos: sin equivalente en BYMA; si data912 no responde, quedan vacíos
+        try:
+            return _d912(path)
+        except Exception as e:  # noqa: BLE001
+            log.warning("data912 %s: %s", path, e)
+            return []
+    mep = {r.get("ticker"): r for r in opcional("/live/mep")}
+    ccl = {r.get("ticker_ar") or r.get("ticker"): r for r in opcional("/live/ccl")}
     mega = {}
     for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion"):
         for it in CFG["mercados"].get(g, []):
@@ -238,7 +369,7 @@ def ar_market():
 
     return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar,
             "acciones": acciones, "panel_lider": panel, "cedears": cedears, "cedears_mega": mega, "sectores": a.get("sectores", {}), "liquidacion": settle.isoformat()}, \
-        "data912.com (secundaria); TIR y TEM: cálculo propio"
+        ("data912.com (secundaria)" if not RESPALDOS else "BYMA open data (respaldo; data912 no respondió)") + "; TIR y TEM: cálculo propio"
 
 
 def _cer_tamar(px, settle, a):
@@ -344,21 +475,47 @@ def _caucion_rava(dias):
     return tna, var
 
 
+def _cauciones_byma():
+    """Respaldo: panel de cauciones de BYMA open data (tasa en pesos por plazo en días)."""
+    for panel in ("cauciones", "repos", "caucion"):
+        try:
+            filas = _byma_panel(panel) or []
+        except Exception as e:  # noqa: BLE001
+            log.warning("BYMA %s: %s", panel, e)
+            continue
+        out = {}
+        for it in filas:
+            if (it.get("denominationCcy") or "ARS") != "ARS":
+                continue
+            dias = it.get("daysToMaturity") or it.get("term") or it.get("plazo")
+            tasa = it.get("trade") or it.get("closingPrice") or it.get("vwap")
+            if dias and tasa and int(dias) in PLAZOS_CAUCION:
+                out[int(dias)] = (float(tasa), None)
+        if out:
+            return out
+    return {}
+
+
 def cauciones():
     out = []
+    byma = None
     for d in PLAZOS_CAUCION:
         try:
             tna, var = _caucion_rava(d)
         except Exception as e:  # noqa: BLE001
             log.warning("caución %sd: %s", d, e)
-            continue
-        prev = tna / (1 + var / 100) if var > -100 else None
+            if byma is None:
+                byma = _cauciones_byma()
+            if d not in byma:
+                continue
+            tna, var = byma[d][0], 0.0
+        prev = tna / (1 + var / 100) if var is not None and var > -100 else None
         out.append({"plazo": d, "tna": tna, "d_pb": (tna - prev) * 100 if prev else None,
                     "tem": ((1 + tna / 100 * d / 365) ** (30 / d) - 1) * 100,
                     "tea": ((1 + tna / 100 * d / 365) ** (365 / d) - 1) * 100})
     if not out:
         raise RuntimeError("sin datos de cauciones")
-    return out, "Rava Bursátil (tasas de BYMA, secundaria)"
+    return out, "Rava Bursátil (tasas de BYMA, secundaria)" + (" · BYMA open data como respaldo" if byma else "")
 
 
 def fed_probs():
