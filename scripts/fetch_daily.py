@@ -1,5 +1,6 @@
 """Corrida diaria (20 h): macro de EE.UU. y Argentina, Fed, curva de Treasuries, BCRA, riesgo país,
 bandas, calendario y earnings. Escribe docs/data/daily.json."""
+import csv
 import io
 import os
 import re
@@ -830,22 +831,34 @@ def tasas_bancos_centrales():
         out.append({"banco": "Banco de Inglaterra", "tasa": v, "detalle": "Bank Rate", "fecha": datetime.strptime(f.strip(), "%d %b %Y").date().isoformat()})
     except Exception as e:  # noqa: BLE001
         log.warning("tasa BoE: %s", e)
-    # Banco de Japón: tasa de política (OECD vía FRED, mensual: puede venir con un mes de demora)
+    # Banco de Japón y Brasil: base de tasas de política del BIS (diaria, todos los bancos centrales)
+    bis = {}
     try:
-        f, v = fred("IRSTCB01JPM156N", (today_ar() - timedelta(days=400)).isoformat())[-1]
-        out.append({"banco": "Banco de Japón", "tasa": v, "detalle": "tasa de política (dato mensual)", "fecha": f})
+        txt = http_get("https://stats.bis.org/api/v1/data/WS_CBPOL/D.JP+BR/all",
+                       params={"startPeriod": (today_ar() - timedelta(days=60)).isoformat(), "format": "csv"},
+                       headers={"User-Agent": "Mozilla/5.0"}, as_json=False, timeout=30).text
+        for r in csv.DictReader(io.StringIO(txt)):
+            if r.get("OBS_VALUE") not in (None, "", "NaN"):
+                bis[r["REF_AREA"]] = (r["TIME_PERIOD"], float(r["OBS_VALUE"]))  # filas en orden: queda la última
     except Exception as e:  # noqa: BLE001
-        log.warning("tasa BoJ: %s", e)
-    # Brasil: meta Selic (Banco Central do Brasil, SGS 432)
+        log.warning("tasas BIS: %s", e)
+    if "JP" in bis:
+        out.append({"banco": "Banco de Japón", "tasa": bis["JP"][1], "detalle": "call rate objetivo", "fecha": bis["JP"][0]})
+    else:
+        log.warning("tasa BoJ: el BIS no devolvió dato")
+    # Brasil: meta Selic (Banco Central do Brasil, SGS 432); si no responde, BIS
     try:
-        r = http_get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1", params={"formato": "json"}, timeout=30)[-1]
+        r = http_get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1", params={"formato": "json"},
+                     headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}, timeout=30)[-1]
         d, m, y = r["data"].split("/")
         out.append({"banco": "Banco Central de Brasil (Copom)", "tasa": num(r["valor"]), "detalle": "meta Selic", "fecha": f"{y}-{m}-{d}"})
     except Exception as e:  # noqa: BLE001
-        log.warning("tasa Selic: %s", e)
+        log.warning("tasa Selic (BCB): %s", e)
+        if "BR" in bis:
+            out.append({"banco": "Banco Central de Brasil (Copom)", "tasa": bis["BR"][1], "detalle": "meta Selic", "fecha": bis["BR"][0]})
     if not out:
         raise RuntimeError("ningún banco central respondió")
-    return out, "FRED (Fed, BCE, BoJ), Bank of England, Banco Central do Brasil"
+    return out, "FRED (Fed, BCE), Bank of England, BIS (BoJ), Banco Central do Brasil (respaldo: BIS)"
 
 
 def lecaps_auto():
