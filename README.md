@@ -67,12 +67,12 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 
 | Dato | Fuente principal | Respaldo automático | Alternativa posible (no implementada) |
 | --- | --- | --- | --- |
-| Índices, futuros, monedas, commodities, cripto, sectores, ETFs, ADRs, empresas | Yahoo Finance (yfinance) | — | Stooq (CSV gratis), Alpha Vantage (con clave) |
+| Índices, futuros, monedas, commodities, cripto, sectores, ETFs, ADRs, empresas | Yahoo Finance (yfinance) | Stooq, símbolo por símbolo (no cubre Russell 2000, VIX, Merval ni Aramco) | Alpha Vantage (con clave) |
 | Capitalización de empresas | Yahoo Finance | — | Financial Modeling Prep (con clave) |
-| Dólares (mayorista, MEP, CCL, blue, cripto) | dolarapi.com | — | argentinadatos.com, Ámbito |
-| Bonos, letras, acciones y CEDEARs argentinos | data912.com | — | BYMA open data (paneles públicos) |
+| Dólares (mayorista, MEP, CCL, blue, cripto) | dolarapi.com | argentinadatos.com (último dato de cada casa) | Ámbito |
+| Bonos, letras, acciones y CEDEARs argentinos | data912.com | BYMA open data (paneles públicos; sin MEP/CCL implícito de CEDEARs) | — |
 | Historia de precios argentinos | data912.com (histórico) | se arma sola con los cierres diarios | BYMA serie histórica |
-| Cauciones 1, 7 y 14 días | Rava (página pública) | — | BYMA open data |
+| Cauciones 1, 7 y 14 días | Rava (página pública) | BYMA open data (sin probar todavía con datos reales) | — |
 | Dólar futuro | A3 Mercados (cierres oficiales) | — | Rava, sinelefantesblancos |
 | Probabilidades de la Fed | Kalshi | — | Polymarket; CME FedWatch (sin API gratis) |
 | Macro EE.UU. (CPI, PCE, empleo, PBI) y Treasuries | FRED (con clave) | — | APIs de BLS / BEA / Tesoro de EE.UU. |
