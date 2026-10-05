@@ -894,6 +894,14 @@ def fichas_empresas():
     return res, "Yahoo Finance (respaldo: Finnhub y Stooq)"
 
 
+def fichas_acciones():
+    """Ficha de cada acción argentina del panel líder: historia en pesos y dólares, Merval, sector y ADR."""
+    import acciones_ar
+    res = acciones_ar.armar(CFG["argentina"], DATA / "fichas" / "acc", read_json(HIST / "dolares.json", {}) or {},
+                            read_json(HIST / "ar_closes.json", {}) or {})
+    return res, "BYMA (serie 24hs), argentinadatos (CCL), Yahoo Finance (Merval y ADR)"
+
+
 def lecaps_auto():
     """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
     import lecaps
@@ -933,6 +941,7 @@ if __name__ == "__main__":
         "tasas_bc": tasas_bancos_centrales,
         "fichas_bonos": fichas_bonos,
         "fichas_empresas": fichas_empresas,
+        "fichas_acciones": fichas_acciones,
         "avisos": avisos,
     })
     log.info("daily.json actualizado %s", now_iso())
