@@ -47,8 +47,11 @@ def _fila(df, nombres):
     return None
 
 
-def fundamentos(adr, ccl):
-    """P/E, precio/valor libro, ROE, ventas y margen con los estados contables (en pesos) pasados a dólares CCL."""
+def fundamentos(adr, ccl, moneda="ARS"):
+    """P/E, precio/valor libro, ROE, ventas y margen con los estados contables pasados a dólares CCL.
+    Algunas (YPF, Pampa) reportan en dólares: en ese caso no se convierte."""
+    if (moneda or "ARS").upper() == "USD":
+        ccl = 1.0
     import yfinance as yf
     t = yf.Ticker(adr)
     out = {}
@@ -111,7 +114,8 @@ def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6):
         if t not in adrs:
             return t, {}
         d = empresas.datos_yahoo(adrs[t])
-        d["fund"] = fundamentos(adrs[t], ccl_hoy)
+        d["fund"] = fundamentos(adrs[t], ccl_hoy, ((d.get("info") or {}).get("moneda_balance")))
+        d["fund"]["moneda"] = ((d.get("info") or {}).get("moneda_balance")) or "ARS"
         return t, d
     with ThreadPoolExecutor(hilos) as ex:
         datos = dict(ex.map(info_adr, tickers))
