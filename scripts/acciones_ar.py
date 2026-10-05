@@ -77,6 +77,22 @@ def fundamentos(adr, ccl, moneda="ARS"):
     return out
 
 
+def _verificar_moneda(fund, cap, ccl):
+    """Yahoo a veces marca como pesos estados que en realidad están en dólares (pasa con YPF). Si al pasarlos
+    de pesos a dólares el precio/valor libro da absurdo (más de 50 veces) y sin convertir da razonable, se
+    toman como dólares."""
+    if not cap or not fund.get("patrimonio") or fund.get("moneda") == "USD":
+        return fund
+    pbv_ars, pbv_usd = cap / fund["patrimonio"], cap / (fund["patrimonio"] * ccl)
+    if pbv_ars > 50 and 0.05 <= pbv_usd <= 20:
+        for k in ("utilidad_12m", "ventas_12m", "patrimonio"):
+            if fund.get(k) is not None:
+                fund[k] *= ccl
+        fund["moneda"] = "USD"
+        fund["moneda_corregida"] = True
+    return fund
+
+
 def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6):
     carpeta.mkdir(parents=True, exist_ok=True)
     tickers = list(dict.fromkeys(cfg_ar.get("panel_lider", []) + cfg_ar.get("acciones", [])))
@@ -116,6 +132,7 @@ def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6):
         d = empresas.datos_yahoo(adrs[t])
         d["fund"] = fundamentos(adrs[t], ccl_hoy, ((d.get("info") or {}).get("moneda_balance")))
         d["fund"]["moneda"] = ((d.get("info") or {}).get("moneda_balance")) or "ARS"
+        d["fund"] = _verificar_moneda(d["fund"], (d.get("info") or {}).get("cap"), ccl_hoy)
         return t, d
     with ThreadPoolExecutor(hilos) as ex:
         datos = dict(ex.map(info_adr, tickers))
