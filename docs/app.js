@@ -879,7 +879,7 @@
         !banco && ["Margen neto", fu.utilidad_12m != null && fu.ventas_12m ? pct(fu.utilidad_12m / fu.ventas_12m * 100, 1) : "—"],
         ["Resultado 12 meses", fu.utilidad_12m != null ? `US$ ${fmt(fu.utilidad_12m / 1e9, 2)} mM` : "—"], ["Patrimonio", fu.patrimonio ? `US$ ${fmt(fu.patrimonio / 1e9, 2)} mM` : "—"],
         ["Beta (del ADR)", fmt(i.beta, 2)]])
-        + `<div class="note">Estados contables en pesos (último balance: ${dmy(fu.patrimonio_fecha)}) pasados a dólares al CCL de hoy; la suma de los últimos 4 trimestres mezcla pesos de distintos momentos, por eso es aproximado. ${banco ? "En bancos se mira sobre todo precio/valor libro y ROE." : ""}</div>`;
+        + `<div class="note">${fu.moneda === "USD" ? `Estados contables en dólares (la empresa reporta en dólares; último balance: ${dmy(fu.patrimonio_fecha)}).` : `Estados contables en pesos (último balance: ${dmy(fu.patrimonio_fecha)}) pasados a dólares al CCL de hoy; la suma de los últimos 4 trimestres mezcla pesos de distintos momentos, por eso es aproximado.`} ${banco ? "En bancos se mira sobre todo precio/valor libro y ROE." : ""}</div>`;
     }
     const bal = adr && (h.balances || []).length ? `<h3>Últimos balances (ADR)</h3>` + table(["Trimestre", "EPS esperado", "EPS real", "Sorpresa"], h.balances.map((b) => [esc(b.trimestre ? dmy(b.trimestre) : "—"), fmt(b.estimado, 2), fmt(b.real, 2), chg(b.sorpresa, 1)]), [0]) : "";
     const rc = h.recomendaciones, totR = rc ? Object.values(rc).reduce((a, b) => a + b, 0) : 0;
