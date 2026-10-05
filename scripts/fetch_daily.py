@@ -886,6 +886,14 @@ def fichas_bonos():
     return res, "BYMA (serie histórica 24hs); respaldo: cierres de data912. TIR/TEM: cálculo propio"
 
 
+def fichas_empresas():
+    """Ficha de cada empresa de la pestaña Empresas: historia, negocio, balances, analistas y noticias."""
+    import empresas
+    items = [it for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion") for it in CFG["mercados"].get(g, [])]
+    res = empresas.armar(items, DATA / "fichas" / "emp", FINNHUB_KEY)
+    return res, "Yahoo Finance (respaldo: Finnhub y Stooq)"
+
+
 def lecaps_auto():
     """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
     import lecaps
@@ -924,6 +932,7 @@ if __name__ == "__main__":
         "licitaciones_resultado": licitaciones_resultado,
         "tasas_bc": tasas_bancos_centrales,
         "fichas_bonos": fichas_bonos,
+        "fichas_empresas": fichas_empresas,
         "avisos": avisos,
     })
     log.info("daily.json actualizado %s", now_iso())
