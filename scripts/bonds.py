@@ -178,3 +178,26 @@ def tabla_flujos(flows, settle, coef=1.0):
             out.append([pago.isoformat(), round(saldo * coef, 4), round(c * coef, 4), round(a * coef, 4), round((c + a) * coef, 4)])
         saldo -= a
     return out
+
+
+def condiciones(fam, hoy):
+    """Condiciones de emisión para la ficha: emisión, vencimiento, cupón vigente (y escalonados), amortización."""
+    fl = build_flows(fam)
+    freq = fam.get("frecuencia", 12 if fam.get("fin_de_mes") else 2)
+    frec = {12: "mensual", 4: "trimestral", 2: "semestral", 1: "anual"}.get(freq, f"{freq} por año")
+    cup = fam["cupones"][0][1]
+    for f, t in fam["cupones"]:
+        if _d(f) <= hoy:
+            cup = t
+    am = fam["amortizacion"]
+    cuotas = am["cuotas_pct"] if isinstance(am["cuotas_pct"], list) else [am["cuotas_pct"]] * am["n"]
+    if len(cuotas) == 1:
+        amort = "100% al vencimiento"
+    elif len(set(cuotas)) == 1:
+        amort = f"{len(cuotas)} cuotas {frec}es de {cuotas[0]:g}% desde el {_d(am['primera']).strftime('%d/%m/%Y')}"
+    elif len(set(cuotas[1:])) == 1:
+        amort = f"{len(cuotas)} cuotas {frec}es desde el {_d(am['primera']).strftime('%d/%m/%Y')}: la primera de {cuotas[0]:g}% y el resto de {cuotas[1]:g}%"
+    else:
+        amort = f"{len(cuotas)} cuotas {frec}es desde el {_d(am['primera']).strftime('%d/%m/%Y')} ({' / '.join(f'{c:g}%' for c in cuotas)})"
+    return {"emision": fam["cupones"][0][0], "vto": fl[-1][0].isoformat(), "cupon": cup, "frecuencia": frec,
+            "escalones": fam["cupones"] if len(fam["cupones"]) > 1 else None, "amortizacion": amort}

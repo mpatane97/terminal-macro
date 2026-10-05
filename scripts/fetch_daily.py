@@ -861,6 +861,31 @@ def tasas_bancos_centrales():
     return out, "FRED (Fed, BCE), Bank of England, BIS (BoJ), Banco Central do Brasil (respaldo: BIS)"
 
 
+def fichas_bonos():
+    """Historia de un año (precio y TIR/TEM) de cada bono y letra, un archivo por papel para la ficha."""
+    import fichas
+    am = (((read_json(DATA / "prices.json", {}) or {}).get("ar_market") or {}).get("data")) or {}
+    if not am:
+        raise RuntimeError("todavía no hay precios de Argentina")
+    papeles = fichas.papeles_de(am, BONOS, today_ar())
+    cer = a35 = None
+    if any(p["clase"] == "cer" for p in papeles.values()):
+        try:
+            cer_id = ((((read_json(DATA / "daily.json", {}) or {}).get("ar_bcra") or {}).get("data") or {}).get("cer") or {}).get("id")
+            if not cer_id:
+                cer_id = next(v["idVariable"] for v in _bcra_list() if re.search(r"^\s*CER\b|Coeficiente de Estabilizaci", v.get("descripcion", "")))
+            cer = [(d, v) for d, v in _bcra_series(cer_id, days=420) if v]
+        except Exception as e:  # noqa: BLE001
+            log.warning("CER histórico: %s", e)
+    if any(p["clase"] == "dl" for p in papeles.values()):
+        try:
+            a35 = [(d, v) for d, v in _bcra_series(5, days=400) if v]
+        except Exception as e:  # noqa: BLE001
+            log.warning("A3500 histórico: %s", e)
+    res = fichas.armar(papeles, cer, a35, read_json(HIST / "ar_closes.json", {}) or {}, DATA / "fichas")
+    return res, "BYMA (serie histórica 24hs); respaldo: cierres de data912. TIR/TEM: cálculo propio"
+
+
 def lecaps_auto():
     """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
     import lecaps
@@ -898,6 +923,7 @@ if __name__ == "__main__":
         "futuros_dolar": futuros_dolar,
         "licitaciones_resultado": licitaciones_resultado,
         "tasas_bc": tasas_bancos_centrales,
+        "fichas_bonos": fichas_bonos,
         "avisos": avisos,
     })
     log.info("daily.json actualizado %s", now_iso())

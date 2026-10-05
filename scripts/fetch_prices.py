@@ -271,11 +271,12 @@ def ar_market():
     px = {r["symbol"]: r for r in bonds_rows + notes_rows}
     hist = _ar_hist()
     settle = bonds.settle_date(today_ar())
-    flows_by_ticker = {}
+    flows_by_ticker, fam_by_ticker = {}, {}
     for fam in BONOS["familias"].values():
         fl = bonds.build_flows(fam)
         for t in fam["tickers"]:
             flows_by_ticker[t] = fl
+            fam_by_ticker[t] = fam
 
     def usd_row(t):
         ars, usd = px.get(t), px.get(_usd_ticker(t))
@@ -291,6 +292,8 @@ def ar_market():
                 row.update(m)
         if t in a["soberanos_usd"]:
             row["ley"] = "NY" if t.startswith("GD") else "Local"
+        if t in fam_by_ticker:
+            row["cond"] = bonds.condiciones(fam_by_ticker[t], today_ar())
         return row
 
     soberanos = [usd_row(t) for t in a["soberanos_usd"]]
@@ -298,7 +301,8 @@ def ar_market():
 
     pesos = []
     # pagos finales: los calculados solos (scripts/lecaps.py) y, encima, los cargados a mano
-    auto = {t: e["pago_final"] for t, e in (read_json(HIST / "lecaps_terms.json", {}) or {}).items() if e.get("pago_final")}
+    terms_lecap = read_json(HIST / "lecaps_terms.json", {}) or {}
+    auto = {t: e["pago_final"] for t, e in terms_lecap.items() if e.get("pago_final")}
     payoffs = {**auto, **BONOS.get("pago_final_pesos", {})}
     for sym, r in px.items():
         mat = bonds.maturity_from_ticker(sym)
@@ -315,6 +319,9 @@ def ar_market():
         if payoffs.get(sym):  # un único pago al vencimiento: capital 100 + interés capitalizado
             pf = num(payoffs[sym])
             row["flujos"] = [[mat.isoformat(), 100.0, round(pf - 100, 4), 100.0, round(pf, 4)]]
+        e = terms_lecap.get(sym) or {}
+        row["cond"] = {"emision": e.get("emision"), "vto": mat.isoformat(), "tem_emision": e.get("tem_emision"),
+                       "pago_final": num(payoffs.get(sym)), "fuente": e.get("fuente") or ("carga manual" if sym in BONOS.get("pago_final_pesos", {}) else None)}
         pesos.append(row)
     pesos.sort(key=lambda r: r["vto"])
 
@@ -425,6 +432,7 @@ def _cer_tamar(px, settle, a):
         if fam:
             fl = bonds.build_flows(fam)
             row["vto"] = fl[-1][0].isoformat()
+            row["cond"] = {**bonds.condiciones(fam, today_ar()), "cer_inicial": fam["cer_inicial"]}
             if cer_t10:
                 row["flujos"] = bonds.tabla_flujos(fl, settle, cer_t10 / fam["cer_inicial"])
                 row["coef_cer"] = cer_t10 / fam["cer_inicial"]
