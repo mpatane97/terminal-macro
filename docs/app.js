@@ -26,7 +26,7 @@
   const tk = (r) => `${esc(r.ticker)}${r.opero === false ? `<span class="sinop-tag" title="No operó en la rueda de hoy: el precio es el último conocido">s/op</span>` : ""}`;
   const fila = (r, celdas) => { if (r.opero === false) celdas.cls = "sinop"; if (r.flujos || r.cond || r.tipo === "TAMAR" || r.tipo === "Dólar linked") { celdas.tk = r.ticker; celdas.cls = `${celdas.cls || ""} clic`.trim(); } return celdas; };
   const table = (head, rows, left = []) => rows.length
-    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}${r.emp ? ` data-emp="${esc(r.emp)}" title="Ver ficha"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">Sin datos todavía.</div>`;
   const byId = (arr, id) => (arr || []).find((x) => x.id === id) || {};
 
@@ -454,13 +454,14 @@
     const prox = (id) => { const e = earn.filter((r) => r.ticker === id).sort((a, b) => (a.fecha < b.fecha ? -1 : 1))[0]; return e ? dmy(e.fecha) : "—"; };
     const spx = (mk.indices_eeuu || []).find((x) => x.id === "SPX") || {};
     const secs = Object.fromEntries((mk.sectores || []).map((x) => [x.id, x]));
-    const rows = (arr) => [...(arr || [])].sort((a, b) => (cap[b.id] ?? 0) - (cap[a.id] ?? 0)).map((r) => {
+    const rows = (arr) => [...(arr || [])].sort((a, b) => (cap[b.id] ?? 0) - (cap[a.id] ?? 0)).map((r) => Object.assign(filaEmp(r), { emp: r.id, cls: "clic" }));
+    const filaEmp = (r) => {
       const sx = secs[r.sector] || {};
       const c = r.cedear ? cm[r.cedear] : null;
       return [`${esc(r.nombre)}<span class="sub">${esc(r.id)}</span>`, cap[r.id] != null ? fmt(cap[r.id], 0) : "—", fmt(r.last, 2), chg(r.d), chg(r.m), chg(r.y),
         chg(rel(r.m, spx.m)), chg(rel(r.y, spx.y)), `${chg(rel(r.y, sx.y))}<span class="sub" title="${esc(sx.nombre || "")}">${esc(sx.id || "")}</span>`, chg(r.dd52, 1), prox(r.id),
         c ? `${fmt(c.ccl, 0)}` : (r.cedear ? "—" : `<span class="na">sin CEDEAR</span>`)];
-    });
+    };
     const H = ["Empresa", "Cap. US$ mM", "Precio US$", "Día", "Mes", "Año", "vs S&P mes", "vs S&P año", "vs sector año", "vs máx 52s", "Balance", "CCL CEDEAR"];
     const m = meta(P, "markets");
     return `${panel("Grandes del S&P 500", table(H, rows(mk.megacaps_eeuu)), { lead: true, meta: m })}
@@ -573,16 +574,21 @@
     const pts = f.map((d, i) => [i, ys[i]]).filter(([, y]) => y != null);
     if (pts.length < 2) return `<div class="empty">Sin historia suficiente para el gráfico.</div>`;
     const W = 700, H = 230, L = 50, R = 14, T = 12, B = 26;
-    let y0 = Math.min(...pts.map((p) => p[1])), y1 = Math.max(...pts.map((p) => p[1]));
+    const extra = (o.extra || []).map((e) => ({ ...e, pts: f.map((d, i) => [i, e.ys[i]]).filter(([, y]) => y != null) }));
+    const todos = [...pts, ...extra.flatMap((e) => e.pts)];
+    let y0 = Math.min(...todos.map((p) => p[1])), y1 = Math.max(...todos.map((p) => p[1]));
     const m = (y1 - y0) * 0.08 || Math.abs(y1) * 0.02 || 1; y0 -= m; y1 += m;
     const X = (i) => L + (i / (f.length - 1)) * (W - L - R), Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
     let g = niceTicks(y0, y1, 5).map((t) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${L - 6}" y="${Y(t) + 4}" text-anchor="end">${fmt(t, o.dec)}</text>`).join("");
     let mes = "";
     f.forEach((d, i) => { const mm = d.slice(0, 7); if (mm !== mes) { if (mes && d.slice(5, 7) % 2 === 1) g += `<text x="${X(i)}" y="${H - 8}" text-anchor="middle">${d.slice(5, 7)}/${d.slice(2, 4)}</text>`; mes = mm; } });
+    for (const e of extra) g += `<polyline class="${e.cls}" stroke-width="1.4" points="${e.pts.map(([i, y]) => `${X(i).toFixed(1)},${Y(y).toFixed(1)}`).join(" ")}"/>`;
+    if (o.base != null) g += `<line class="grid" stroke-dasharray="4 4" x1="${L}" x2="${W - R}" y1="${Y(o.base)}" y2="${Y(o.base)}"/>`;
     g += `<polyline class="s1" stroke-width="1.8" points="${pts.map(([i, y]) => `${X(i).toFixed(1)},${Y(y).toFixed(1)}`).join(" ")}"/>`;
     const [li, ly] = pts[pts.length - 1];
     g += `<circle class="s1" cx="${X(li)}" cy="${Y(ly)}" r="3"><title>${dmy(f[li])}: ${fmt(ly, o.dec)}${o.suf}</title></circle>`;
-    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.titulo)}">${g}</svg></div>`;
+    const leg = o.leyenda ? `<div class="legend">${o.leyenda.map(([c, n]) => `<span class="${c}"><i></i>${esc(n)}</span>`).join("")}</div>` : "";
+    return `${leg}<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.titulo)}">${g}</svg></div>`;
   }
   // valor de la serie en la última fecha <= iso
   const valorAl = (h, iso, campo = "p") => { let v = null; for (let i = 0; i < h.f.length && h.f[i] <= iso; i++) if (h[campo][i] != null) v = h[campo][i]; return v; };
@@ -695,8 +701,110 @@
   }
   document.addEventListener("click", (e) => {
     const b = e.target.closest(".tog"); if (!b || !fichaAbierta) return;
-    fichaAbierta.modo = b.dataset.modo; dibujarFicha(HIST_FICHA[fichaAbierta.t]);
+    fichaAbierta.modo = b.dataset.modo;
+    if (fichaAbierta.t.startsWith("emp:")) graficoEmpresa(HIST_EMP[fichaAbierta.t.slice(4)]); else dibujarFicha(HIST_FICHA[fichaAbierta.t]);
   });
+
+  /* ---------- Ficha de una empresa (clic en la fila de la pestaña Empresas) ---------- */
+  const HIST_EMP = {};
+  async function historiaEmpresa(id) {
+    if (HIST_EMP[id] !== undefined) return HIST_EMP[id];
+    const getJ = (u) => fetch(u + `?t=${Date.now()}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    HIST_EMP[id] = (RAW && (await getJ(`${RAW}fichas/emp/${id}.json`))) || (await getJ(`data/fichas/emp/${id}.json`));
+    return HIST_EMP[id];
+  }
+  const RECOM = { strong_buy: "Compra fuerte", buy: "Compra", hold: "Mantener", underperform: "Bajo rendimiento", sell: "Venta", strong_sell: "Venta fuerte" };
+  const montoMM = (v, mon) => (v == null ? "—" : `${mon && mon !== "USD" ? esc(mon) + " " : "US$ "}${fmt(v / 1e9, Math.abs(v) >= 1e11 ? 0 : 1)} mM`);
+  function filaEmpresa(id) {
+    const mk = blk(P, "markets") || {};
+    for (const g of ["megacaps_eeuu", "megacaps_global", "empresas_seleccion"]) { const r = (mk[g] || []).find((x) => x.id === id); if (r) return r; }
+    return null;
+  }
+  function abrirEmpresa(id) {
+    const r = filaEmpresa(id); if (!r) return;
+    const box = $("#ficha");
+    fichaAbierta = { t: "emp:" + id, modo: "p" };
+    box.innerHTML = `<div class="ficha-caja" role="dialog" aria-label="Ficha ${esc(r.nombre)}"><button class="cerrar" aria-label="Cerrar">×</button>
+      <h2>${esc(r.nombre)} <span class="sub">${esc(id)}</span></h2><div id="emp-cuerpo"><div class="empty">Cargando…</div></div></div>`;
+    box.hidden = false;
+    historiaEmpresa(id).then((h) => { if (fichaAbierta && fichaAbierta.t === "emp:" + id) dibujarEmpresa(r, h); });
+  }
+  function dibujarEmpresa(r, h) {
+    const cuerpo = $("#emp-cuerpo"); if (!cuerpo) return;
+    const i = (h && h.info) || {}, earn = blk(D, "earnings") || [], cap = (blk(D, "megacaps_info") || {})[r.id];
+    const kv = (pares) => `<dl class="kv">${pares.filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+    const x = (v, d = 1) => (v == null ? "—" : `${fmt(v, d)}×`);
+    const prox = earn.filter((e) => e.ticker === r.id).sort((a, b) => (a.fecha < b.fecha ? -1 : 1))[0];
+    const precio = r.last ?? (h && h.p ? h.p[h.p.length - 1] : null);
+    const strip = [["Precio", `${fmt(precio, 2)} US$`], ["Día", chg(r.d)], ["Cap.", cap != null ? `US$ ${fmt(cap, 0)} mM` : montoMM(i.cap)],
+      ["P/E", x(i.pe)], ["vs máx. 52s", chg(r.dd52, 1)], ["Próximo balance", prox ? dmy(prox.fecha) : "—"]];
+    const sub = [i.sector, i.industria, i.pais].filter(Boolean).map(esc).join(" · ");
+    if (!h) { cuerpo.innerHTML = `<div class="strip">${strip.map(([k, v]) => `<span><b>${k}</b> ${v}</span>`).join("")}</div><div class="empty">Todavía no hay ficha de esta empresa (se arma en la corrida de Datos diarios).</div>`; return; }
+    // rendimiento comparado: empresa, S&P 500 y ETF del sector en los mismos períodos
+    const n = h.f.length, fin = h.f[n - 1];
+    const idxDesde = (iso) => { const k = h.f.findIndex((d) => d >= iso); return k < 0 ? null : k; };
+    const varS = (arr, k) => (k == null || arr == null || arr[k] == null || arr[n - 1] == null ? null : (arr[n - 1] / arr[k] - 1) * 100);
+    const periodos = [["1 mes", isoMenos(fin, 30)], ["3 meses", isoMenos(fin, 91)], ["En el año", `${fin.slice(0, 4)}-01-01`], ["12 meses", isoMenos(fin, 365)]];
+    const rendT = table(["", esc(r.id), "S&P 500", `Sector (${esc(h.sector_etf || "—")})`, "Le ganó al S&P", "Le ganó al sector"], periodos.map(([nom, iso]) => {
+      const k = idxDesde(iso), e = varS(h.p, k), sp = varS(h.spx, k), se = varS(h.sec, k);
+      return [nom, chg(e), chg(sp), chg(se), chg(rel(e, sp)), chg(rel(e, se))];
+    }), [0]);
+    const ps = h.p.filter((v) => v != null), mx = Math.max(...ps), mn = Math.min(...ps);
+    const vs = (h.v || []).filter((v) => v != null), prom = vs.length > 21 ? vs.slice(-21, -1).reduce((a, b) => a + b, 0) / 20 : null;
+    const rango = kv([["Rango 12 meses", `${fmt(mn, 2)} – ${fmt(mx, 2)}`], ["Distancia al máximo", chg((h.p[n - 1] / mx - 1) * 100)],
+      ["Volumen vs. prom. 20 ruedas", prom && vs[vs.length - 1] ? `${fmt(vs[vs.length - 1] / prom, 1)}×` : "—"], ["Beta", fmt(i.beta, 2)]]);
+    const mb = i.moneda_balance;
+    const valuacion = kv([["Capitalización", cap != null ? `US$ ${fmt(cap, 0)} mM` : montoMM(i.cap)], ["P/E (últimos 12 meses)", x(i.pe)], ["P/E proyectado", x(i.pe_fwd)],
+      ["EV / EBITDA", x(i.ev_ebitda)], ["Precio / ventas", x(i.p_ventas)], ["Precio / valor libro", x(i.p_libro)],
+      ["Rendimiento por dividendo", i.div ? pct(i.div, 2) : "—"], i.payout != null && ["Payout", pct(i.payout, 0)]]);
+    const negocio = kv([["Ventas (12 meses)", montoMM(i.ventas, mb)], ["Crecimiento de ventas", i.crec_ventas != null ? chg(i.crec_ventas, 1) + ` <span class="sub">interanual</span>` : "—"],
+      ["Crecimiento de ganancias", i.crec_ganancias != null ? chg(i.crec_ganancias, 1) + ` <span class="sub">interanual</span>` : "—"],
+      ["Margen bruto / operativo / neto", [i.margen_bruto, i.margen_operativo, i.margen_neto].map((v) => (v == null ? "—" : fmt(v, 1) + "%")).join(" / ")],
+      ["ROE", i.roe != null ? pct(i.roe, 1) : "—"], ["EBITDA", montoMM(i.ebitda, mb)], ["Flujo de caja libre", montoMM(i.fcf, mb)],
+      ["Deuda neta", i.deuda_neta != null ? (i.deuda_neta < 0 ? `caja neta ${montoMM(-i.deuda_neta, mb)}` : montoMM(i.deuda_neta, mb)) : "—"]]);
+    const bal = (h.balances || []).length ? table(["Trimestre", "EPS esperado", "EPS real", "Sorpresa"], h.balances.map((b) => [esc(b.trimestre ? dmy(b.trimestre) : "—"), fmt(b.estimado, 2), fmt(b.real, 2), chg(b.sorpresa, 1)]), [0])
+      : `<div class="empty">Sin historial de balances.</div>`;
+    const rc = h.recomendaciones, totR = rc ? Object.values(rc).reduce((a, b) => a + b, 0) : 0;
+    const barra = totR ? `<div class="recom">${[["strongBuy", "Compra fuerte", "rc1"], ["buy", "Compra", "rc2"], ["hold", "Mantener", "rc3"], ["sell", "Venta", "rc4"], ["strongSell", "Venta fuerte", "rc5"]]
+      .filter(([k]) => rc[k]).map(([k, nmb, c]) => `<span class="${c}" style="flex:${rc[k]}" title="${nmb}: ${rc[k]}">${rc[k]}</span>`).join("")}</div>
+      <div class="recom-ley"><span class="rc1">Compra fuerte</span><span class="rc2">Compra</span><span class="rc3">Mantener</span><span class="rc4">Venta</span><span class="rc5">Venta fuerte</span></div>` : "";
+    const local = i.moneda && i.moneda !== "USD", monTxt = local ? ` ${esc(i.moneda)}` : "";
+    const precioLocal = local ? h.p[h.p.length - 1] : precio;  // los objetivos vienen en la moneda en que cotiza
+    const analistas = kv([["Recomendación promedio", i.recom ? `${esc(RECOM[i.recom] || i.recom)}${i.recom_media ? ` <span class="na">(${fmt(i.recom_media, 1)} de 1 a 5)</span>` : ""}` : "—"],
+      ["Analistas", i.analistas ?? (totR || "—")], ["Precio objetivo promedio", i.objetivo ? `${fmt(i.objetivo, 2)}${monTxt} ${precioLocal ? chg((i.objetivo / precioLocal - 1) * 100, 1) : ""}` : "—"],
+      i.objetivo_min && ["Rango de precios objetivo", `${fmt(i.objetivo_min, 2)} – ${fmt(i.objetivo_max, 2)}`]]) + barra;
+    // CEDEAR: precio en pesos, CCL implícito contra el de mercado y ratio aproximado
+    let ced = "";
+    const cm = r.cedear ? ((blk(P, "ar_market") || {}).cedears_mega || {})[r.cedear] : null;
+    if (cm) {
+      const cclM = byId((blk(P, "dolares") || {}).cotizaciones || [], "contadoconliqui").venta;
+      const ratio = cm.ccl && precio && cm.precio ? cm.ccl * precio / cm.precio : null;
+      ced = `<h3>CEDEAR (${esc(r.cedear)})</h3>` + kv([["Precio en pesos", `$ ${fmt(cm.precio, 2)} ${chg(cm.d)}`], ["CCL implícito", fmt(cm.ccl, 2)],
+        ["Contra el CCL de mercado", cm.ccl && cclM ? `${chg((cm.ccl / cclM - 1) * 100, 1)} <span class="na">(CCL ${fmt(cclM, 2)})</span>` : "—"],
+        ratio && ["Ratio (aprox.)", `${fmt(ratio, ratio < 3 ? 2 : 0)} CEDEAR por acción`]])
+        + `<div class="note">CCL implícito = precio del CEDEAR × ratio ÷ precio en EE.UU. Si está por encima del CCL de mercado, el CEDEAR está caro contra comprar la acción afuera.</div>`;
+    }
+    const noticias = (h.noticias || []).length ? `<ul class="news">${h.noticias.map((x) => `<li><span class="t">${x.fecha ? hhmm(x.fecha) : ""}</span><span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo)}</a> <span class="f">${esc(x.fuente || "")}</span></span></li>`).join("")}</ul>` : `<div class="empty">Sin noticias.</div>`;
+    cuerpo.innerHTML = `${sub ? `<div class="note" style="margin-top:-6px">${sub}</div>` : ""}<div class="strip">${strip.map(([k, v]) => `<span><b>${k}</b> ${v}</span>`).join("")}</div>
+      <div id="emp-graf"></div>
+      <h3>Rendimiento comparado</h3>${rendT}
+      <div class="ficha-cols"><div><h3>Valuación</h3>${valuacion}${rango}</div><div><h3>Negocio</h3>${negocio}</div></div>
+      <div class="ficha-cols"><div><h3>Últimos balances</h3>${bal}${prox ? `<div class="note">Próximo: ${dmy(prox.fecha)}${prox.hora ? `, ${esc(prox.hora)}` : ""}${prox.eps_estimado != null ? ` · EPS esperado ${fmt(prox.eps_estimado, 2)}` : ""}.</div>` : ""}</div><div><h3>Analistas</h3>${analistas}</div></div>
+      <div class="ficha-cols"><div><h3>Noticias</h3>${noticias}</div><div>${ced}</div></div>
+      <div class="note">Fuente: ${esc(h.fuente || "")}, actualizado ${hhmm(h.updated)}. Precios ajustados por dividendos y splits. Montos del negocio en ${esc(mb || "USD")}, mM = miles de millones. EPS: ganancia por acción.</div>`;
+    graficoEmpresa(h);
+  }
+  function graficoEmpresa(h) {
+    const g = $("#emp-graf"); if (!g || !h || !h.f || h.f.length < 2) { if (g) g.innerHTML = `<div class="empty">Sin historia de precios.</div>`; return; }
+    const modo = fichaAbierta.modo;
+    const botones = `<div class="togs">${[["p", "Precio"], ["c", "Contra S&P 500 y sector"]].map(([k, n]) => `<button class="tog" data-modo="${k}" aria-pressed="${modo === k}">${esc(n)}</button>`).join("")}</div>`;
+    if (modo === "c") {
+      const b = (arr) => { const k = (arr || []).findIndex((v) => v != null); return (arr || []).map((v) => (v == null || k < 0 ? null : (v / arr[k]) * 100)); };
+      g.innerHTML = botones + serieTiempo(h.f, b(h.p), { dec: 0, suf: "", titulo: `${h.id} contra S&P 500 y sector`, base: 100,
+        extra: [{ ys: b(h.spx), cls: "s2" }, ...(h.sec ? [{ ys: b(h.sec), cls: "s3" }] : [])], leyenda: [["s1", h.id], ["s2", "S&P 500"], ...(h.sec ? [["s3", h.sector_etf]] : [])] })
+        + `<div class="note">Base 100 hace un año: cuánto rindió cada uno en el período.</div>`;
+    } else g.innerHTML = botones + serieTiempo(h.f, h.p, { dec: dec(h.p[h.p.length - 1]), suf: "", titulo: `${h.id} precio` });
+  }
 
   const VIEWS = { resumen: viewResumen, eeuu: viewEEUU, ar_macro: viewArMacro, ar_usd: viewArUSD, ar_pesos: viewArPesos, ar_acciones: viewArAcciones,
     mercados: viewMercados, empresas: viewEmpresas, calendario: viewCalendario };
@@ -811,6 +919,7 @@
     const box = $("#ficha");
     if (!box.hidden && (e.target.closest(".cerrar") || e.target === box)) { box.hidden = true; return; }
     const tr = e.target.closest("tr[data-tk]"); if (tr) abrirFlujos(tr.dataset.tk);
+    const te = e.target.closest("tr[data-emp]"); if (te) abrirEmpresa(te.dataset.emp);
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#ficha").hidden = true; });
   document.addEventListener("click", (e) => {
