@@ -39,6 +39,41 @@ def _valor_al(serie, iso):
     return serie[i - 1][1] if i else None
 
 
+def desajustar(filas, papel, cer=None):
+    """La serie de BYMA viene ajustada por los pagos (cada cupón o amortización reescala los precios anteriores,
+    como un ajuste por dividendos). Para calcular la TIR de cada día hace falta el precio real: se deshace el ajuste.
+    Fecha ex: la primera rueda cuya liquidación (T+1) cae en la fecha de pago o después. Si a es el precio ajustado
+    de la rueda anterior a la fecha ex y c el pago, el factor de los precios anteriores es F_antes = F_despues + c / a."""
+    flujos = papel.get("flujos")
+    if not flujos or papel["clase"] not in ("usd", "cer") or len(filas) < 2:
+        return filas
+    fechas = [d for d, _, _ in filas]
+    liq = [bonds.settle_date(date.fromisoformat(d)).isoformat() for d in fechas]
+    pagos = []
+    for d, c, a in flujos:
+        pago = d
+        while not feriados.es_habil(pago):
+            pago += timedelta(days=1)
+        monto = c + a
+        if papel["clase"] == "cer":
+            v = cer and _valor_al(cer, feriados.sumar_habiles(pago, -10).isoformat())
+            if not v:
+                continue
+            monto *= v / papel["cer_inicial"]
+        ex = next((i for i, l in enumerate(liq) if l >= pago.isoformat()), None)
+        if ex and monto > 0:
+            pagos.append((ex, monto))
+    if not pagos:
+        return filas
+    factor = [1.0] * len(filas)
+    f = 1.0
+    for ex, monto in sorted(pagos, reverse=True):
+        f += monto / filas[ex - 1][1]
+        for i in range(ex):
+            factor[i] = f
+    return [(d, c * factor[i], v) for i, (d, c, v) in enumerate(filas)]
+
+
 def _r(x, d):
     return None if x is None else round(x, d)
 
@@ -90,6 +125,11 @@ def armar(papeles, cer, a3500, cierres_respaldo, carpeta):
         except Exception as e:  # noqa: BLE001
             filas, fuente = [], None
             errores[t] = str(e)[:120]
+        if filas:
+            filas = desajustar(filas, p, cer)
+            exactos = cierres_respaldo.get(p["simbolo"]) or {}
+            if exactos:  # bonos en dólares: donde hay cierre guardado de data912 (sin ajustar), se usa ese
+                filas = [(d, exactos.get(d) or c, v) for d, c, v in filas]
         if not filas and cierres_respaldo.get(p["simbolo"]):
             filas = [(d, v, None) for d, v in sorted(cierres_respaldo[p["simbolo"]].items())]
             fuente = "data912 (cierres guardados)"
