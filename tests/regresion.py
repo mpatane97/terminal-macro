@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import bonds  # noqa: E402
 import feriados  # noqa: E402
 import fichas  # noqa: E402
+import acciones_ar  # noqa: E402
 import indec  # noqa: E402
 import lecaps  # noqa: E402
 
@@ -50,6 +51,13 @@ pago = next(c + a for d, c, a in papel["flujos"] if d == date(2026, 1, 9))
 real = fichas.desajustar([("2026-01-07", 67.11 - pago, None), ("2026-01-08", 58.53, None)], papel)
 chequear("AL30 historia BYMA desajustada (07/01/26)", real[0][1], 67.11, 1e-6)
 chequear("AL30 historia BYMA sin cambio desde la fecha ex", real[1][1], 58.53, 1e-9)
+
+# estados que Yahoo marca en pesos pero están en dólares (YPF): patrimonio de US$ 7.700 M tomado como pesos
+f = acciones_ar._verificar_moneda({"patrimonio": 7.7e9 / 1623.8, "utilidad_12m": 7.45e8 / 1623.8, "moneda": "ARS"}, 19.47e9, 1623.8)
+chequear("Estados de YPF detectados en dólares", f["moneda"], "USD")
+chequear("YPF precio/valor libro corregido", round(19.47e9 / f["patrimonio"], 2), 2.53, 0.01)
+g = acciones_ar._verificar_moneda({"patrimonio": 9.2e12 / 1623.8, "moneda": "ARS"}, 6.08e9, 1623.8)
+chequear("Estados de Galicia siguen en pesos", g["moneda"], "ARS")
 
 s4 = BONOS["familias"].get("BOPREAL_S4")
 chequear("BOPREAL Serie 4 cargado", bool(s4), True)
