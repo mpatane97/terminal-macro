@@ -791,7 +791,7 @@
       <div class="ficha-cols"><div><h3>Valuación</h3>${valuacion}${rango}</div><div><h3>Negocio</h3>${negocio}</div></div>
       <div class="ficha-cols"><div><h3>Últimos balances</h3>${bal}${prox ? `<div class="note">Próximo: ${dmy(prox.fecha)}${prox.hora ? `, ${esc(prox.hora)}` : ""}${prox.eps_estimado != null ? ` · EPS esperado ${fmt(prox.eps_estimado, 2)}` : ""}.</div>` : ""}</div><div><h3>Analistas</h3>${analistas}</div></div>
       <div class="ficha-cols"><div><h3>Noticias</h3>${noticias}</div><div>${ced}</div></div>
-      <div class="note">Fuente: ${esc(h.fuente || "")}, actualizado ${hhmm(h.updated)}. Precios ajustados por dividendos y splits. Montos del negocio en ${esc(mb || "USD")}, mM = miles de millones. EPS: ganancia por acción.</div>`;
+      <div class="note">Fuente: ${esc(h.fuente || "")}, actualizado ${hhmm(h.updated)}. Precios ajustados por dividendos y splits${local ? `; el gráfico y los precios objetivo están en ${esc(i.moneda)}` : ""}. Montos del negocio en ${esc(mb || "USD")}, mM = miles de millones. EPS: ganancia por acción.${i.multiplos_omitidos ? ` EV/EBITDA, precio/ventas y precio/libro no se muestran: la empresa reporta en ${esc(mb)} y cotiza en ${esc(i.moneda)}, y la fuente los calcula mezclando monedas.` : ""}</div>`;
     graficoEmpresa(h);
   }
   function graficoEmpresa(h) {
