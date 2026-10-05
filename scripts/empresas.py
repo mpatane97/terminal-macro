@@ -89,17 +89,63 @@ def datos_yahoo(sym):
         log.warning("Yahoo analistas %s: %s", sym, e)
     try:
         notas = []
-        for n in (t.news or [])[:8]:
+        crudas = []
+        try:
+            crudas = t.get_news(count=8) if hasattr(t, "get_news") else []
+        except Exception:  # noqa: BLE001
+            crudas = []
+        for n in (crudas or t.news or [])[:8]:
             c = n.get("content") or n  # formato nuevo (content) y viejo
             url = ((c.get("canonicalUrl") or {}).get("url") or (c.get("clickThroughUrl") or {}).get("url") or c.get("link"))
             fecha = c.get("pubDate") or (datetime.fromtimestamp(c["providerPublishTime"], timezone.utc).isoformat() if c.get("providerPublishTime") else None)
             if c.get("title") and url:
                 notas.append({"titulo": c["title"], "url": url, "fecha": fecha,
                               "fuente": (c.get("provider") or {}).get("displayName") or c.get("publisher")})
+        if not notas:
+            notas = _noticias_rss(sym)
         out["noticias"] = notas[:6]
     except Exception as e:  # noqa: BLE001
         log.warning("Yahoo noticias %s: %s", sym, e)
+    # múltiplos que mezclan monedas: si la empresa reporta en otra moneda que la del precio (TSMC en TWD),
+    # Yahoo divide valores en monedas distintas y el resultado no sirve
+    i = out.get("info")
+    if i and i.get("moneda_balance") and i.get("moneda") and i["moneda_balance"] != i["moneda"]:
+        for k in ("ev_ebitda", "p_ventas", "p_libro"):
+            i[k] = None
+        i["multiplos_omitidos"] = True
     return out
+
+
+def _noticias_rss(sym):
+    """Titulares de Yahoo Finance por RSS (respaldo cuando la API de noticias no devuelve nada)."""
+    import feedparser
+    try:
+        txt = http_get("https://feeds.finance.yahoo.com/rss/2.0/headline", params={"s": sym, "region": "US", "lang": "en-US"},
+                       as_json=False, timeout=15, retries=1).text
+        out = []
+        for e in feedparser.parse(txt).entries[:6]:
+            fecha = None
+            if getattr(e, "published_parsed", None):
+                fecha = datetime(*e.published_parsed[:6], tzinfo=timezone.utc).isoformat()
+            out.append({"titulo": e.get("title"), "url": e.get("link"), "fecha": fecha, "fuente": "Yahoo Finance"})
+        return [x for x in out if x["titulo"] and x["url"]]
+    except Exception as e:  # noqa: BLE001
+        log.warning("RSS noticias %s: %s", sym, e)
+        return []
+
+
+def noticias_finnhub(sym, key):
+    """Último respaldo de noticias (solo acciones de EE.UU.)."""
+    hoy = datetime.now(timezone.utc).date()
+    try:
+        rows = http_get("https://finnhub.io/api/v1/company-news",
+                        params={"symbol": sym, "from": (hoy - timedelta(days=14)).isoformat(), "to": hoy.isoformat(), "token": key}) or []
+        return [{"titulo": r.get("headline"), "url": r.get("url"), "fuente": r.get("source"),
+                 "fecha": datetime.fromtimestamp(r["datetime"], timezone.utc).isoformat() if r.get("datetime") else None}
+                for r in rows[:6] if r.get("headline") and r.get("url")]
+    except Exception as e:  # noqa: BLE001
+        log.warning("Finnhub noticias %s: %s", sym, e)
+        return []
 
 
 def datos_finnhub(sym, key):
@@ -176,6 +222,11 @@ def armar(items, carpeta, finnhub_key=None, hilos=6):
                 if fh.get(k):
                     d[k] = fh[k]
                     respaldo.append(f"{it['id']}:{k}")
+        if not d.get("noticias") and finnhub_key and "." not in it["yahoo"]:
+            d["noticias"] = noticias_finnhub(it["yahoo"], finnhub_key)
+            if d["noticias"]:
+                respaldo.append(f"{it['id']}:noticias")
+            time.sleep(1.1)
         filas = base.get(it["yahoo"]) or []
         if not filas and not d.get("info"):
             sin.append(it["id"])
@@ -184,8 +235,14 @@ def armar(items, carpeta, finnhub_key=None, hilos=6):
         filas = corta(filas)
         fechas = [x[0] for x in filas]
         def alinear(sym):  # referencia (S&P 500 o ETF del sector) en las mismas fechas que la empresa
-            m = {x[0]: x[1] for x in base.get(sym) or []}
-            return [round(m[f], 4) if f in m else None for f in fechas]
+            ref = sorted(base.get(sym) or [])
+            out_, j, ult = [], 0, None
+            for f in fechas:  # último cierre disponible a esa fecha (las bolsas no abren los mismos días)
+                while j < len(ref) and ref[j][0] <= f:
+                    ult = ref[j][1]
+                    j += 1
+                out_.append(round(ult, 4) if ult is not None else None)
+            return out_
         doc = {"id": it["id"], "nombre": it["nombre"], "yahoo": it["yahoo"], "cedear": it.get("cedear"), "sector_etf": it.get("sector"),
                "updated": now_iso(), "fuente": "Yahoo Finance" + (" (respaldo Finnhub)" if any(r.startswith(it["id"] + ":") for r in respaldo) else ""),
                "f": fechas, "p": [round(x[1], 4) for x in filas], "v": [round(x[2]) if x[2] else None for x in filas],
