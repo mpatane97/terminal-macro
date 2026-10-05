@@ -288,6 +288,10 @@ class _T:
         self.earnings_history = pd.DataFrame({"epsEstimate": [1.5, 1.6, 1.62, 1.7], "epsActual": [1.6, 1.58, 1.7, 1.81],
                                               "surprisePercent": [0.0667, -0.0125, 0.0494, 0.0647]},
                                              index=pd.to_datetime(["2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"]))
+        cols = pd.to_datetime(["2026-06-30", "2026-03-31", "2025-12-31", "2025-09-30"])
+        self.quarterly_income_stmt = pd.DataFrame([[4.0e11, 3.5e11, 3.8e11, 3.2e11], [2.0e12, 1.9e12, 1.8e12, 1.7e12]],
+                                                  index=["Net Income Common Stockholders", "Total Revenue"], columns=cols)
+        self.quarterly_balance_sheet = pd.DataFrame([[1.2e13, 1.1e13, 1.0e13, 9.5e12]], index=["Stockholders Equity"], columns=cols)
         self.recommendations = pd.DataFrame({"period": ["0m"], "strongBuy": [12], "buy": [20], "hold": [8], "sell": [1], "strongSell": [0]})
         self.news = [{"content": {"title": f"{t} sube tras su balance", "pubDate": "2026-10-02T14:00:00Z", "provider": {"displayName": "Reuters"},
                                   "canonicalUrl": {"url": "https://example.com/nota"}}}]
@@ -302,6 +306,7 @@ d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 import fichas  # noqa: E402
 fichas.http_get = fake_get
+d["fichas_acciones"] = common.run_blocks(OUT / "fichas_run3.json", {"fichas_acciones": fetch_daily.fichas_acciones})["fichas_acciones"]
 d["fichas_empresas"] = common.run_blocks(OUT / "fichas_run2.json", {"fichas_empresas": fetch_daily.fichas_empresas})["fichas_empresas"]
 d["fichas_bonos"] = common.run_blocks(OUT / "fichas_run.json", {"fichas_bonos": fetch_daily.fichas_bonos})["fichas_bonos"]
 bad = {k: v["error"] for src in (d, p) for k, v in src.items() if isinstance(v, dict) and v.get("error")}
