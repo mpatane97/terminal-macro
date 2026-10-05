@@ -24,9 +24,9 @@
   }
   // papeles que no operaron en la rueda: ticker con etiqueta "s/op" y fila atenuada
   const tk = (r) => `${esc(r.ticker)}${r.opero === false ? `<span class="sinop-tag" title="No operó en la rueda de hoy: el precio es el último conocido">s/op</span>` : ""}`;
-  const fila = (r, celdas) => { if (r.opero === false) celdas.cls = "sinop"; if (r.flujos) { celdas.tk = r.ticker; celdas.cls = `${celdas.cls || ""} clic`.trim(); } return celdas; };
+  const fila = (r, celdas) => { if (r.opero === false) celdas.cls = "sinop"; if (r.flujos || r.cond || r.tipo === "TAMAR" || r.tipo === "Dólar linked") { celdas.tk = r.ticker; celdas.cls = `${celdas.cls || ""} clic`.trim(); } return celdas; };
   const table = (head, rows, left = []) => rows.length
-    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver flujo de fondos"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">Sin datos todavía.</div>`;
   const byId = (arr, id) => (arr || []).find((x) => x.id === id) || {};
 
@@ -559,27 +559,144 @@
     const a = blk(P, "ar_market") || {};
     return [...(a.soberanos || []), ...(a.bopreal || []), ...(a.pesos_fija || []), ...(a.cer_tamar || []), ...(a.dolar_linked || [])].find((r) => r.ticker === t);
   }
-  function abrirFlujos(t) {
-    const r = buscarRF(t); if (!r || !r.flujos) return;
-    const usd = r.usd != null, cer = r.tipo === "CER", fija = r.pago_final != null;
-    const precio = usd ? r.usd : r.precio;
-    const tot = r.flujos.reduce((a, f) => a + f[4], 0);
-    const datos = [["Precio", fmt(precio, 2) + (usd ? " US$" : " $")], ["TIR", pct(r.tir ?? r.tirea, 2) + (cer ? " real" : "")], fija ? ["TEM", pct(r.tem)] : ["Duration mod.", fmt(r.dur_mod, 2)],
-      usd ? ["Paridad", pct(r.paridad, 1)] : ["Vencimiento", dmy(r.vto)], usd ? ["Ley", esc(r.ley || "—")] : ["Días", r.dias ?? r.dias_vto ?? "—"]];
-    const filas = r.flujos.map((f) => [dmy(f[0]), fmt(f[1], 3), fmt(f[2], 3), fmt(f[3], 3), `<b>${fmt(f[4], 3)}</b>`]);
-    const dlnk = r.tipo === "Dólar linked";
-    const nota = dlnk ? `Dólar linked: paga US$ 100 por cada 100 VN, en pesos al tipo de cambio A3500 del vencimiento (con el A3500 de hoy serían $ ${fmt((blk(P, "ar_market") || {}).a3500_ref * 100, 0)}).`
-      : cer ? `Montos por 100 VN ajustados por el CER de hoy (coeficiente ${fmt(r.coef_cer, 4)}); el pago real depende del CER a la fecha de cada pago.`
-      : fija ? `Letra capitalizable: un único pago al vencimiento (capital 100 + interés capitalizado a la TEM de emisión).`
-      : `Montos por 100 VN original en dólares. Fechas corridas al día hábil siguiente cuando caen en feriado o fin de semana. Saldo: capital pendiente antes del pago.`;
-    const box = $("#ficha");
-    box.innerHTML = `<div class="ficha-caja" role="dialog" aria-label="Flujo de fondos ${esc(t)}"><button class="cerrar" aria-label="Cerrar">×</button>
-      <h2>${esc(t)} <span class="sub">${esc(r.tipo || (r.ley ? `Ley ${r.ley}` : "BOPREAL"))}</span></h2>
-      <div class="strip">${datos.map(([k, v]) => `<span><b>${k}</b> ${v}</span>`).join("")}</div>
-      <h3>Flujo de fondos</h3>${table(["Fecha", "Saldo", "Cupón", "Amort.", "Total"], filas)}
-      <div class="note">Total a cobrar por 100 VN: <b>${fmt(tot, 2)}</b>. ${nota}</div></div>`;
-    box.hidden = false;
+  /* ---------- Ficha de un bono o letra (clic en la fila) ---------- */
+  let RAW = null, fichaAbierta = null;
+  const HIST_FICHA = {};
+  async function historiaFicha(t) {
+    if (HIST_FICHA[t] !== undefined) return HIST_FICHA[t];
+    const getJ = (u) => fetch(u + `?t=${Date.now()}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    HIST_FICHA[t] = (RAW && (await getJ(`${RAW}fichas/${t}.json`))) || (await getJ(`data/fichas/${t}.json`));
+    return HIST_FICHA[t];
   }
+  // gráfico de línea en el tiempo (fechas ISO en x)
+  function serieTiempo(f, ys, o) {
+    const pts = f.map((d, i) => [i, ys[i]]).filter(([, y]) => y != null);
+    if (pts.length < 2) return `<div class="empty">Sin historia suficiente para el gráfico.</div>`;
+    const W = 700, H = 230, L = 50, R = 14, T = 12, B = 26;
+    let y0 = Math.min(...pts.map((p) => p[1])), y1 = Math.max(...pts.map((p) => p[1]));
+    const m = (y1 - y0) * 0.08 || Math.abs(y1) * 0.02 || 1; y0 -= m; y1 += m;
+    const X = (i) => L + (i / (f.length - 1)) * (W - L - R), Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+    let g = niceTicks(y0, y1, 5).map((t) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${L - 6}" y="${Y(t) + 4}" text-anchor="end">${fmt(t, o.dec)}</text>`).join("");
+    let mes = "";
+    f.forEach((d, i) => { const mm = d.slice(0, 7); if (mm !== mes) { if (mes && d.slice(5, 7) % 2 === 1) g += `<text x="${X(i)}" y="${H - 8}" text-anchor="middle">${d.slice(5, 7)}/${d.slice(2, 4)}</text>`; mes = mm; } });
+    g += `<polyline class="s1" stroke-width="1.8" points="${pts.map(([i, y]) => `${X(i).toFixed(1)},${Y(y).toFixed(1)}`).join(" ")}"/>`;
+    const [li, ly] = pts[pts.length - 1];
+    g += `<circle class="s1" cx="${X(li)}" cy="${Y(ly)}" r="3"><title>${dmy(f[li])}: ${fmt(ly, o.dec)}${o.suf}</title></circle>`;
+    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.titulo)}">${g}</svg></div>`;
+  }
+  // valor de la serie en la última fecha <= iso
+  const valorAl = (h, iso, campo = "p") => { let v = null; for (let i = 0; i < h.f.length && h.f[i] <= iso; i++) if (h[campo][i] != null) v = h[campo][i]; return v; };
+  const isoMenos = (iso, dias) => new Date(new Date(iso + "T12:00:00Z").getTime() - dias * 864e5).toISOString().slice(0, 10);
+  function rendimientoFicha(h) {
+    const n = h.f.length, ult = h.p[n - 1], fin = h.f[n - 1];
+    const vr = (iso) => { const v = valorAl(h, iso); return v ? (ult / v - 1) * 100 : null; };
+    const anio = h.f.filter((d) => d >= isoMenos(fin, 365)), idx0 = h.f.indexOf(anio[0]);
+    const ps = h.p.slice(idx0).filter((x) => x != null), max = Math.max(...ps), min = Math.min(...ps);
+    const vs = (h.v || []).filter((x) => x != null), vol20 = vs.slice(-21, -1), prom = vol20.length ? vol20.reduce((a, b) => a + b, 0) / vol20.length : null;
+    const volU = (h.v || [])[n - 1];
+    return `<dl class="kv"><dt>Último cierre</dt><dd>${fmt(ult, dec(ult))} <span class="na">(${dmy(fin)})</span></dd>
+      <dt>Semana</dt><dd>${chg(vr(isoMenos(fin, 7)))}</dd><dt>Mes</dt><dd>${chg(vr(isoMenos(fin, 30)))}</dd>
+      <dt>En el año</dt><dd>${chg(vr(`${+fin.slice(0, 4) - 1}-12-31`))}</dd><dt>12 meses</dt><dd>${h.f[0] <= isoMenos(fin, 355) ? chg((ult / h.p[Math.max(0, h.f.findIndex((d) => d >= isoMenos(fin, 365)))] - 1) * 100) : `<span class="na">—</span>`}</dd>
+      <dt>Rango del período</dt><dd>${fmt(min, dec(min))} – ${fmt(max, dec(max))}</dd><dt>Distancia al máximo</dt><dd>${chg((ult / max - 1) * 100)}</dd>
+      <dt>Volumen vs. prom. 20 ruedas</dt><dd>${volU && prom ? `${fmt(volU / prom, 1)}×` : "—"}</dd></dl>`;
+  }
+  // precio teórico con una TIR dada, descontando el flujo de fondos desde la liquidación
+  function precioCon(flujos, tir, liq) {
+    const s = new Date(liq + "T12:00:00Z");
+    return flujos.reduce((a, f) => { const t = (new Date(f[0] + "T12:00:00Z") - s) / 864e5 / 365; return t > 0 ? a + f[4] / Math.pow(1 + tir / 100, t) : a; }, 0);
+  }
+  function abrirFlujos(t) {
+    const r = buscarRF(t); if (!r) return;
+    const arm = blk(P, "ar_market") || {}, liq = arm.liquidacion;
+    const usd = r.usd != null, cer = r.tipo === "CER", fija = r.tipo === "LECAP" || r.tipo === "BONCAP", dlnk = r.tipo === "Dólar linked", tamar = r.tipo === "TAMAR";
+    const precio = usd ? r.usd : r.precio, tir = r.tir ?? r.tirea, c = r.cond || {};
+    const nombre = usd ? (r.ley ? `Bono en dólares · Ley ${r.ley === "NY" ? "Nueva York" : "argentina"}` : "BOPREAL (BCRA)") : r.tipo;
+    const kv = (pares) => `<dl class="kv">${pares.filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+    const strip = [["Precio", fmt(precio, 2) + (usd ? " US$" : " $")], ["Día", chg(r.d)],
+      tamar ? null : [fija ? "TEM" : cer ? "TIR real" : dlnk ? "TIR en US$" : "TIR", pct(fija ? r.tem : tir, 2)],
+      r.dur_mod != null ? ["Duration mod.", fmt(r.dur_mod, 2)] : null, ["Vencimiento", dmy(r.vto || c.vto)]].filter(Boolean);
+    // condiciones de emisión
+    const cond = kv([c.emision && ["Emisión", dmy(c.emision)], ["Vencimiento", dmy(c.vto || r.vto)],
+      c.cupon != null && (c.cupon === 0 && !c.escalones ? ["Cupón", "Cero cupón"] : [cer ? "Cupón (sobre capital ajustado)" : "Cupón vigente", `${fmt(c.cupon, 3)}% anual, ${c.frecuencia}`]),
+      c.escalones && ["Cupón escalonado", c.escalones.map(([f, v]) => `${fmt(v, 3)}% desde ${dmy(f)}`).join("<br>")],
+      c.amortizacion && ["Amortización", esc(c.amortizacion)], c.cer_inicial && ["CER inicial", fmt(c.cer_inicial, 4)],
+      c.tem_emision != null && ["TEM de emisión", pct(c.tem_emision)], c.pago_final && ["Pago final por 100 VN", fmt(c.pago_final, 3)],
+      usd && ["Moneda de pago", "Dólares"], usd && r.ley && ["Ley", r.ley === "NY" ? "Nueva York" : "Argentina"],
+      dlnk && ["Moneda", "Pesos, ajustado por A3500 del vencimiento"],
+      c.fuente && ["Origen de las condiciones", esc(c.fuente)], tamar && ["Nota", "Paga TAMAR más un margen; sin TIR hasta cargar sus condiciones."]]);
+    // métricas y sensibilidad
+    let sens = null;
+    if (r.flujos && tir != null && liq) {
+      const b = precioCon(r.flujos, tir, liq), up = precioCon(r.flujos, tir + 1, liq), dn = precioCon(r.flujos, tir - 1, liq);
+      if (b > 0) sens = `${chg((dn / b - 1) * 100)} / ${chg((up / b - 1) * 100)}`;
+    }
+    const prox = r.flujos && r.flujos.length ? r.flujos[0] : null;
+    const met = kv([tir != null && [cer ? "TIR real" : dlnk ? "TIR en US$" : fija ? "TIREA" : "TIR", pct(tir, 2)],
+      r.tem != null && ["TEM / TNA", `${pct(r.tem, 2)} / ${pct(r.tna, 2)}`], r.dur_mod != null && ["Duration modificada", fmt(r.dur_mod, 2)],
+      r.paridad != null && ["Paridad", pct(r.paridad, 1)], r.vt != null && ["Valor técnico", fmt(r.vt, 3)],
+      r.vt != null && r.residual != null && ["Intereses corridos", fmt(r.vt - r.residual, 3)], r.residual != null && ["Valor residual", fmt(r.residual, 2)],
+      prox && ["Próximo pago", `${dmy(prox[0])} · ${fmt(prox[4], 3)}`], sens && ["Precio si la TIR baja / sube 1 pto", sens],
+      r.coef_cer != null && ["Coeficiente CER", fmt(r.coef_cer, 4)], r.precio_usd != null && ["Precio en US$ (A3500 de hoy)", fmt(r.precio_usd, 2)]]);
+    // comparaciones propias de cada tipo
+    let extra = "";
+    if (r.ley) {
+      const par = r.ticker.startsWith("GD") ? (r.ticker === "GD38" ? "AE38" : r.ticker.replace(/^GD/, "AL")) : (r.ticker === "AE38" ? "GD38" : r.ticker.replace(/^AL/, "GD"));
+      const o = (arm.soberanos || []).find((x) => x.ticker === par);
+      if (o && o.tir != null && tir != null) {
+        const [loc, ny] = r.ley === "NY" ? [o, r] : [r, o];
+        extra += `<h3>Contra su par de la otra ley</h3>` + kv([[`${par} · TIR`, pct(o.tir, 2)], [`${par} · precio`, fmt(o.usd, 2) + " US$"],
+          ["Diferencia de TIR (ley local − ley NY)", `${fmt((loc.tir - ny.tir) * 100, 0)} pb`]]);
+      }
+    }
+    const cot = (blk(P, "dolares") || {}).cotizaciones || [], a35 = byId(cot, "mayorista").venta || arm.a3500_ref;
+    const fut = ((blk(D, "futuros_dolar") || {}).contratos || []).filter((x) => x.precio && x.vto)
+      .map((x) => ({ d: Math.round((new Date(x.vto + "T12:00:00-03:00") - Date.now()) / 864e5), p: x.precio })).filter((x) => x.d > 0);
+    const futAl = (d) => { for (let i = 0; i < fut.length - 1; i++) if (d >= fut[i].d && d <= fut[i + 1].d) return fut[i].p + (fut[i + 1].p - fut[i].p) * (d - fut[i].d) / (fut[i + 1].d - fut[i].d); return null; };
+    if (fija && r.pago_final && a35) {
+      const rem = (blk(D, "rem") || {}).ipc_mensual || [], rv = rem.filter((x) => x.mes <= r.vto.slice(0, 7));
+      extra += `<h3>Contra inflación y dólar</h3>` + kv([r.inflacion_implicita != null && ["Inflación mensual implícita (vs. CER)", pct(r.inflacion_implicita)],
+        rv.length && ["REM promedio hasta el vencimiento", pct(rv.reduce((a, x) => a + x.mediana, 0) / rv.length, 1)],
+        ["Dólar de equilibrio al vencimiento", fmt(a35 * r.pago_final / r.precio, 0)], futAl(r.dias) && ["Dólar futuro A3 al vencimiento", fmt(futAl(r.dias), 0)]]);
+    }
+    if (dlnk && a35 && r.precio_usd) {
+      const pf = (arm.pesos_fija || []).filter((x) => x.tem != null).sort((x, y) => x.dias - y.dias);
+      let tf = null;
+      if (pf.length) { tf = r.dias <= pf[0].dias ? pf[0].tem : r.dias >= pf[pf.length - 1].dias ? pf[pf.length - 1].tem : null;
+        for (let i = 0; tf == null && i < pf.length - 1; i++) if (r.dias >= pf[i].dias && r.dias <= pf[i + 1].dias) tf = pf[i].tem + (pf[i + 1].tem - pf[i].tem) * (r.dias - pf[i].dias) / (pf[i + 1].dias - pf[i].dias); }
+      extra += `<h3>Contra tasa fija y futuro</h3>` + kv([tf != null && ["Dólar implícito (empata con LECAP)", fmt(a35 * Math.pow(1 + tf / 100, r.dias / 30) / (100 / r.precio_usd), 0)],
+        futAl(r.dias) && ["Dólar futuro A3 al vencimiento", fmt(futAl(r.dias), 0)], ["A3500 hoy", fmt(a35, 2)]]);
+    }
+    const tot = r.flujos ? r.flujos.reduce((a, f) => a + f[4], 0) : null;
+    const nota = dlnk ? `Paga US$ 100 por cada 100 VN, en pesos al A3500 del vencimiento.`
+      : cer ? `Montos por 100 VN ajustados por el CER de hoy; el pago real depende del CER a la fecha de cada pago.`
+      : fija ? `Letra capitalizable: un único pago al vencimiento.` : `Montos por 100 VN original. Fechas corridas al día hábil siguiente si caen en feriado o fin de semana.`;
+    const flujosHtml = r.flujos ? `<h3>Flujo de fondos</h3>${table(["Fecha", "Saldo", "Cupón", "Amort.", "Total"], r.flujos.map((f) => [dmy(f[0]), fmt(f[1], 3), fmt(f[2], 3), fmt(f[3], 3), `<b>${fmt(f[4], 3)}</b>`]))}
+      <div class="note">Total a cobrar por 100 VN: <b>${fmt(tot, 2)}</b>. ${nota}</div>` : "";
+    const box = $("#ficha");
+    fichaAbierta = { t, modo: tamar ? "p" : "m" };
+    box.innerHTML = `<div class="ficha-caja" role="dialog" aria-label="Ficha ${esc(t)}"><button class="cerrar" aria-label="Cerrar">×</button>
+      <h2>${esc(t)} <span class="sub">${esc(nombre)}</span></h2>
+      <div class="strip">${strip.map(([k, v]) => `<span><b>${k}</b> ${v}</span>`).join("")}</div>
+      <div id="ficha-graf"><div class="empty">Cargando historia…</div></div>
+      <div class="ficha-cols"><div><h3>Rendimiento del precio</h3><div id="ficha-rend"><div class="empty">Cargando…</div></div></div><div><h3>Condiciones de emisión</h3>${cond}</div></div>
+      <div class="ficha-cols"><div><h3>Métricas de hoy</h3>${met}</div><div>${extra}</div></div>
+      ${flujosHtml}</div>`;
+    box.hidden = false;
+    historiaFicha(t).then((h) => { if (fichaAbierta && fichaAbierta.t === t) dibujarFicha(h); });
+  }
+  function dibujarFicha(h) {
+    const g = $("#ficha-graf"), rd = $("#ficha-rend"); if (!g) return;
+    if (!h || !h.f || h.f.length < 2) { g.innerHTML = `<div class="empty">Todavía no hay historia de este papel (se arma en la corrida de Datos diarios).</div>`; rd.innerHTML = `<div class="empty">—</div>`; return; }
+    const tieneM = h.m && h.m.some((x) => x != null), modo = tieneM ? fichaAbierta.modo : "p";
+    const botones = tieneM ? `<div class="togs">${[["m", h.metrica], ["p", "Precio"]].map(([k, n]) => `<button class="tog" data-modo="${k}" aria-pressed="${modo === k}">${esc(n)}</button>`).join("")}</div>` : "";
+    g.innerHTML = botones + serieTiempo(h.f, modo === "m" ? h.m : h.p, { dec: modo === "m" ? 1 : dec(h.p[h.p.length - 1]), suf: modo === "m" ? "%" : "", titulo: `${h.ticker} ${modo === "m" ? h.metrica : "precio"}` })
+      + `<div class="note">Último año, cierres diarios (${esc(h.fuente || "")}). ${modo === "m" ? `${esc(h.metrica)} calculada con el precio de cada día.` : buscarRF(h.ticker)?.flujos?.length > 1 ? "El precio baja en las fechas de pago de cupón y amortización." : ""}</div>`;
+    rd.innerHTML = rendimientoFicha(h);
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest(".tog"); if (!b || !fichaAbierta) return;
+    fichaAbierta.modo = b.dataset.modo; dibujarFicha(HIST_FICHA[fichaAbierta.t]);
+  });
 
   const VIEWS = { resumen: viewResumen, eeuu: viewEEUU, ar_macro: viewArMacro, ar_usd: viewArUSD, ar_pesos: viewArPesos, ar_acciones: viewArAcciones,
     mercados: viewMercados, empresas: viewEmpresas, calendario: viewCalendario };
@@ -595,7 +712,7 @@
   const NOMBRES = { markets: "Mercados (Yahoo)", dolares: "Dólares", ar_market: "Precios Argentina (data912)", fed_probs: "Probabilidades Fed (Kalshi)",
     cauciones: "Cauciones", news: "Noticias", us_macro: "Macro EE.UU.", fed: "Fed", treasuries: "Treasuries", ar_bcra: "BCRA", ipc: "IPC", riesgo_pais: "Riesgo país",
     emae: "EMAE", rem: "REM", bandas: "Bandas cambiarias", calendar_us: "Calendario EE.UU.", calendar_ar: "Calendario INDEC", calendar_intl: "Calendario internacional",
-    earnings: "Balances", megacaps_info: "Capitalizaciones", lecaps_auto: "Altas de LECAP", cer_auto: "Altas de bonos CER", feriados: "Feriados" };
+    earnings: "Balances", megacaps_info: "Capitalizaciones", lecaps_auto: "Altas de LECAP", fichas_bonos: "Historia de bonos (fichas)", licitaciones_resultado: "Resultado de licitaciones", tasas_bc: "Tasas de bancos centrales", futuros_dolar: "Dólar futuro", cer_auto: "Altas de bonos CER", feriados: "Feriados" };
   function problemas() {
     const out = [];
     // un bloque que no se actualiza hace más de 2 días hábiles (48 h de lunes a viernes)
@@ -667,7 +784,7 @@
     if (window.__SAMPLE__) { P = window.__SAMPLE__.prices; D = window.__SAMPLE__.daily; $("#sample").hidden = false; return render(); }
     // Los datos viven en la rama "datos" del repo (se reescribe en cada corrida). Si no responde, se usa la copia local.
     const owner = location.hostname.split(".")[0], repo = location.pathname.split("/")[1];
-    const RAW = owner && repo && location.hostname.endsWith("github.io") ? `https://raw.githubusercontent.com/${owner}/${repo}/datos/` : null;
+    RAW = owner && repo && location.hostname.endsWith("github.io") ? `https://raw.githubusercontent.com/${owner}/${repo}/datos/` : null;
     const bust = `?t=${Date.now()}`;
     const getJ = (u) => fetch(u + bust).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     const get = async (f) => (RAW && (await getJ(RAW + f))) || (await getJ("data/" + f)) || {};

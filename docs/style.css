@@ -179,3 +179,13 @@ tr.clic td:first-child { text-decoration: underline dotted color-mix(in srgb, va
 .ficha .cerrar:hover { color: var(--fg); }
 .ficha-caja h3 { margin: 0; padding: 10px 12px 2px; font: 600 11px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .strip.rueda { padding: 6px 14px; font-size: 12px; }
+
+/* ficha de un activo */
+.ficha-caja { width: min(900px, 100%); }
+.ficha-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; align-items: start; }
+@media (max-width: 720px) { .ficha-cols { grid-template-columns: minmax(0, 1fr); } }
+.togs { display: flex; gap: 6px; padding: 6px 12px 0; }
+.tog { font: 500 12px var(--font-ui); color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 12px; padding: 3px 12px; cursor: pointer; }
+.tog[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); }
+.ficha .kv { grid-template-columns: max-content minmax(0, 1fr); }
+.ficha .kv dd { white-space: normal; }
