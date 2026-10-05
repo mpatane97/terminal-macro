@@ -691,6 +691,165 @@
         "COME",
         "TECO2"
       ]
+    },
+    "_empresas_nota": "Nombre de cada acción del panel líder, su ADR en Nueva York (si tiene) y cuántas acciones locales equivalen a 1 ADR (ratio). 'buscar': palabras para encontrar sus noticias en los diarios argentinos.",
+    "empresas": {
+      "ALUA": {
+        "nombre": "Aluar",
+        "buscar": [
+          "Aluar"
+        ]
+      },
+      "BBAR": {
+        "nombre": "BBVA Argentina",
+        "adr": "BBAR",
+        "ratio": 3,
+        "buscar": [
+          "BBVA"
+        ]
+      },
+      "BMA": {
+        "nombre": "Banco Macro",
+        "adr": "BMA",
+        "ratio": 10,
+        "buscar": [
+          "Banco Macro",
+          "Macro"
+        ]
+      },
+      "BYMA": {
+        "nombre": "Bolsas y Mercados Argentinos",
+        "buscar": [
+          "BYMA"
+        ]
+      },
+      "CEPU": {
+        "nombre": "Central Puerto",
+        "adr": "CEPU",
+        "ratio": 10,
+        "buscar": [
+          "Central Puerto"
+        ]
+      },
+      "COME": {
+        "nombre": "Sociedad Comercial del Plata",
+        "buscar": [
+          "Comercial del Plata"
+        ]
+      },
+      "CRES": {
+        "nombre": "Cresud",
+        "adr": "CRESY",
+        "ratio": 10,
+        "buscar": [
+          "Cresud"
+        ]
+      },
+      "EDN": {
+        "nombre": "Edenor",
+        "adr": "EDN",
+        "ratio": 20,
+        "buscar": [
+          "Edenor"
+        ]
+      },
+      "GGAL": {
+        "nombre": "Grupo Financiero Galicia",
+        "adr": "GGAL",
+        "ratio": 10,
+        "buscar": [
+          "Galicia"
+        ]
+      },
+      "IRSA": {
+        "nombre": "IRSA",
+        "adr": "IRS",
+        "ratio": 10,
+        "buscar": [
+          "IRSA"
+        ]
+      },
+      "LOMA": {
+        "nombre": "Loma Negra",
+        "adr": "LOMA",
+        "ratio": 5,
+        "buscar": [
+          "Loma Negra"
+        ]
+      },
+      "METR": {
+        "nombre": "Metrogas",
+        "buscar": [
+          "Metrogas"
+        ]
+      },
+      "PAMP": {
+        "nombre": "Pampa Energía",
+        "adr": "PAM",
+        "ratio": 25,
+        "buscar": [
+          "Pampa"
+        ]
+      },
+      "SUPV": {
+        "nombre": "Grupo Supervielle",
+        "adr": "SUPV",
+        "ratio": 5,
+        "buscar": [
+          "Supervielle"
+        ]
+      },
+      "TECO2": {
+        "nombre": "Telecom Argentina",
+        "adr": "TEO",
+        "ratio": 5,
+        "buscar": [
+          "Telecom"
+        ]
+      },
+      "TGNO4": {
+        "nombre": "Transportadora de Gas del Norte",
+        "buscar": [
+          "TGN",
+          "Gas del Norte"
+        ]
+      },
+      "TGSU2": {
+        "nombre": "Transportadora de Gas del Sur",
+        "adr": "TGS",
+        "ratio": 5,
+        "buscar": [
+          "TGS",
+          "Gas del Sur"
+        ]
+      },
+      "TRAN": {
+        "nombre": "Transener",
+        "buscar": [
+          "Transener"
+        ]
+      },
+      "TXAR": {
+        "nombre": "Ternium Argentina",
+        "buscar": [
+          "Ternium"
+        ]
+      },
+      "VALO": {
+        "nombre": "Grupo Financiero Valores",
+        "buscar": [
+          "Grupo Valores",
+          "Banco de Valores"
+        ]
+      },
+      "YPFD": {
+        "nombre": "YPF",
+        "adr": "YPF",
+        "ratio": 1,
+        "buscar": [
+          "YPF"
+        ]
+      }
     }
   },
   "earnings_top20": [
