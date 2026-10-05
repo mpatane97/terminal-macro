@@ -26,7 +26,7 @@
   const tk = (r) => `${esc(r.ticker)}${r.opero === false ? `<span class="sinop-tag" title="No operó en la rueda de hoy: el precio es el último conocido">s/op</span>` : ""}`;
   const fila = (r, celdas) => { if (r.opero === false) celdas.cls = "sinop"; if (r.flujos || r.cond || r.tipo === "TAMAR" || r.tipo === "Dólar linked") { celdas.tk = r.ticker; celdas.cls = `${celdas.cls || ""} clic`.trim(); } return celdas; };
   const table = (head, rows, left = []) => rows.length
-    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}${r.emp ? ` data-emp="${esc(r.emp)}" title="Ver ficha"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}${r.emp ? ` data-emp="${esc(r.emp)}" title="Ver ficha"` : ""}${r.acc ? ` data-acc="${esc(r.acc)}" title="Ver ficha"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">Sin datos todavía.</div>`;
   const byId = (arr, id) => (arr || []).find((x) => x.id === id) || {};
 
@@ -440,8 +440,8 @@
     // referencia de sector: promedio de los demás papeles del mismo sector (sin contar al propio)
     const promSector = (t, k) => { const s = secDe(t); if (!s || s === "Otros") return null; const v = pl.filter((r) => r.ticker !== t && secs[s].includes(r.ticker) && r[k] != null).map((r) => r[k]); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
     const panelT = panel("Panel líder", table(["Ticker", "Sector", "Precio", "Día", "Sem", "Mes", "Año", "vs. Merval (mes)", "vs. sector (mes)", "vs. Merval (año)"],
-        pl.map((r) => fila(r, [tk(r), `<span class="na">${esc(secDe(r.ticker) || "—")}</span>`, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y),
-          chg(rel(r.m, mv.m)), chg(rel(r.m, promSector(r.ticker, "m"))), chg(rel(r.y, mv.y))])), [1])
+        pl.map((r) => Object.assign(fila(r, [tk(r), `<span class="na">${esc(secDe(r.ticker) || "—")}</span>`, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y),
+          chg(rel(r.m, mv.m)), chg(rel(r.m, promSector(r.ticker, "m"))), chg(rel(r.y, mv.y))]), { acc: r.ticker, cls: `${r.opero === false ? "sinop " : ""}clic` })), [1])
       + `<div class="note">"vs." = cuánto le ganó (verde) o perdió (rojo) cada acción a su referencia en el período, en pesos. Sector: promedio simple de los otros papeles del panel del mismo sector.</div>`, { lead: true, meta: m });
     const adrs = panel("ADRs en Nueva York", table(["", "USD", "Día", "Sem", "Mes", "Año"], priceRows(mk.adrs, ["d", "w", "m", "y"])), { meta: meta(P, "markets") });
     const ced = panel("CEDEARs", table(["Ticker", "Precio", "Día", "Mes", "MEP implícito", "CCL implícito"], (arm.cedears || []).map((r) => fila(r, [tk(r), fmt(r.precio, 2), chg(r.d), chg(r.m), fmt(r.mep, 2), fmt(r.ccl, 2)]))), { meta: m });
@@ -702,7 +702,9 @@
   document.addEventListener("click", (e) => {
     const b = e.target.closest(".tog"); if (!b || !fichaAbierta) return;
     fichaAbierta.modo = b.dataset.modo;
-    if (fichaAbierta.t.startsWith("emp:")) graficoEmpresa(HIST_EMP[fichaAbierta.t.slice(4)]); else dibujarFicha(HIST_FICHA[fichaAbierta.t]);
+    if (fichaAbierta.t.startsWith("emp:")) graficoEmpresa(HIST_EMP[fichaAbierta.t.slice(4)]);
+    else if (fichaAbierta.t.startsWith("acc:")) graficoAccion(HIST_ACC[fichaAbierta.t.slice(4)]);
+    else dibujarFicha(HIST_FICHA[fichaAbierta.t]);
   });
 
   /* ---------- Ficha de una empresa (clic en la fila de la pestaña Empresas) ---------- */
@@ -804,6 +806,114 @@
         extra: [{ ys: b(h.spx), cls: "s2" }, ...(h.sec ? [{ ys: b(h.sec), cls: "s3" }] : [])], leyenda: [["s1", h.id], ["s2", "S&P 500"], ...(h.sec ? [["s3", h.sector_etf]] : [])] })
         + `<div class="note">Base 100 hace un año: cuánto rindió cada uno en el período.</div>`;
     } else g.innerHTML = botones + serieTiempo(h.f, h.p, { dec: dec(h.p[h.p.length - 1]), suf: "", titulo: `${h.id} precio` });
+  }
+
+  /* ---------- Ficha de una acción argentina (clic en la fila del panel líder) ---------- */
+  const HIST_ACC = {};
+  async function historiaAccion(t) {
+    if (HIST_ACC[t] !== undefined) return HIST_ACC[t];
+    const getJ = (u) => fetch(u + `?t=${Date.now()}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    HIST_ACC[t] = (RAW && (await getJ(`${RAW}fichas/acc/${t}.json`))) || (await getJ(`data/fichas/acc/${t}.json`));
+    return HIST_ACC[t];
+  }
+  function abrirAccion(t) {
+    const arm = blk(P, "ar_market") || {};
+    const r = [...(arm.panel_lider || []), ...(arm.acciones || [])].find((x) => x.ticker === t); if (!r) return;
+    fichaAbierta = { t: "acc:" + t, modo: "u" };
+    const box = $("#ficha");
+    box.innerHTML = `<div class="ficha-caja" role="dialog" aria-label="Ficha ${esc(t)}"><button class="cerrar" aria-label="Cerrar">×</button>
+      <h2>${esc(t)} <span class="sub" id="acc-nombre"></span></h2><div id="acc-cuerpo"><div class="empty">Cargando…</div></div></div>`;
+    box.hidden = false;
+    historiaAccion(t).then((h) => { if (fichaAbierta && fichaAbierta.t === "acc:" + t) dibujarAccion(r, h); });
+  }
+  function dibujarAccion(r, h) {
+    const cuerpo = $("#acc-cuerpo"); if (!cuerpo) return;
+    const kv = (pares) => `<dl class="kv">${pares.filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+    const cot = (blk(P, "dolares") || {}).cotizaciones || [], cclM = byId(cot, "contadoconliqui").venta;
+    const precioUsd = r.precio && cclM ? r.precio / cclM : null;
+    const mkAdr = ((blk(P, "markets") || {}).adrs || []);
+    const adr = h && h.adr, adrRow = adr ? mkAdr.find((x) => x.yahoo === adr.simbolo || x.id === adr.simbolo) : null;
+    const adrUlt = adr ? (adrRow?.last ?? [...adr.p].reverse().find((v) => v != null)) : null;
+    const cclImp = adr && adr.ratio && adrUlt && r.precio ? r.precio * adr.ratio / adrUlt : null;
+    const strip = [["Precio", `$ ${fmt(r.precio, 2)}`], ["Día", chg(r.d)], ["En dólares CCL", precioUsd ? `US$ ${fmt(precioUsd, precioUsd < 10 ? 3 : 2)}` : "—"],
+      adr && ["ADR " + esc(adr.simbolo), `US$ ${fmt(adrUlt, 2)} ${adrRow ? chg(adrRow.d) : ""}`], cclImp && ["CCL implícito", fmt(cclImp, 0)]].filter(Boolean);
+    if (h) $("#acc-nombre").textContent = `${h.nombre}${h.sector ? " · " + h.sector : ""}`;
+    if (!h) { cuerpo.innerHTML = `<div class="strip">${strip.map(([k, v]) => `<span><b>${k}</b> ${v}</span>`).join("")}</div><div class="empty">Todavía no hay ficha de esta acción (se arma en la corrida de Datos diarios).</div>`; return; }
+    const n = h.f.length, fin = h.f[n - 1];
+    const enUsd = h.p.map((v, k) => (v != null && h.ccl[k] ? v / h.ccl[k] : null));
+    const mvUsd = h.merval ? h.merval.map((v, k) => (v != null && h.ccl[k] ? v / h.ccl[k] : null)) : null;
+    h._usd = enUsd; h._mvUsd = mvUsd;
+    const idxDesde = (iso) => { const k = h.f.findIndex((d) => d >= iso); return k < 0 ? null : k; };
+    const varS = (arr, k) => (k == null || !arr || arr[k] == null || arr[n - 1] == null ? null : (arr[n - 1] / arr[k] - 1) * 100);
+    const periodos = [["1 mes", isoMenos(fin, 30)], ["3 meses", isoMenos(fin, 91)], ["En el año", `${fin.slice(0, 4)}-01-01`], ["12 meses", isoMenos(fin, 365)]];
+    const rendT = table(["", "En pesos", "En US$ CCL", "Merval US$", "Sector US$", "Le ganó al Merval", "Le ganó al sector"], periodos.map(([nom, iso]) => {
+      const k = idxDesde(iso), u = varS(enUsd, k), mv = varS(mvUsd, k), se = varS(h.sector_idx, k);
+      return [nom, chg(varS(h.p, k)), chg(u), chg(mv), chg(se), chg(rel(u, mv)), chg(rel(u, se))];
+    }), [0]);
+    const us = enUsd.filter((v) => v != null), mx = Math.max(...us), mn = Math.min(...us);
+    const montos = h.v.map((v, k) => (v != null && h.p[k] && h.ccl[k] ? v * h.p[k] / h.ccl[k] : null)).filter((v) => v != null);
+    const prom20 = montos.length > 21 ? montos.slice(-21, -1).reduce((a, b) => a + b, 0) / 20 : null;
+    const mercado = kv([["Rango 12 meses (US$)", `${fmt(mn, dec(mn))} – ${fmt(mx, dec(mx))}`], ["Distancia al máximo (US$)", chg((enUsd[n - 1] / mx - 1) * 100)],
+      ["Volumen vs. prom. 20 ruedas", montos.length > 21 && montos[montos.length - 1] ? `${fmt(montos[montos.length - 1] / prom20, 1)}×` : "—"],
+      ["Monto operado por día (prom. 20 ruedas)", prom20 ? `US$ ${fmt(prom20 / 1e6, 1)} M` : "—"],
+      ["Sector", `${esc(h.sector || "—")}${h.pares && h.pares.length ? ` <span class="na">(${esc(h.pares.join(", "))})</span>` : ""}`]]);
+    // ADR: arbitraje y rendimiento comparado
+    let adrHtml = "";
+    if (adr) {
+      const kA = idxDesde(`${fin.slice(0, 4)}-01-01`);
+      adrHtml = `<h3>ADR en Nueva York (${esc(adr.simbolo)})</h3>` + kv([["Precio del ADR", `US$ ${fmt(adrUlt, 2)}`], ["Equivalencia", `1 ADR = ${fmt(adr.ratio, 0)} ${adr.ratio === 1 ? "acción" : "acciones"} locales`],
+        ["CCL implícito", cclImp ? fmt(cclImp, 2) : "—"], ["Contra el CCL de mercado", cclImp && cclM ? `${chg((cclImp / cclM - 1) * 100, 1)} <span class="na">(CCL ${fmt(cclM, 2)})</span>` : "—"],
+        ["En el año: ADR / local en US$", `${chg(varS(adr.p, kA))} / ${chg(varS(enUsd, kA))}`]])
+        + `<div class="note">CCL implícito = precio local × ${fmt(adr.ratio, 0)} ÷ precio del ADR. Si está por encima del CCL de mercado, la acción está más cara acá que en Nueva York.${cclImp && cclM && Math.abs(cclImp / cclM - 1) > 0.15 ? " <b>Diferencia mayor al 15%: revisar el ratio.</b>" : ""}</div>`;
+    }
+    // valuación con los estados contables (en pesos) pasados a dólares al CCL de hoy
+    const i = h.info || {}, fu = h.fund || {}, cap = i.cap;
+    let val = "";
+    if (adr && (cap || fu.utilidad_12m)) {
+      const banco = h.sector === "Bancos y financieras";
+      val = `<h3>Valuación (aprox.)</h3>` + kv([["Capitalización", cap ? `US$ ${fmt(cap / 1e9, 2)} mM` : "—"],
+        ["P/E (últimos 12 meses)", cap && fu.utilidad_12m > 0 ? `${fmt(cap / fu.utilidad_12m, 1)}×` : fu.utilidad_12m < 0 ? "pérdida" : "—"],
+        ["Precio / valor libro", cap && fu.patrimonio ? `${fmt(cap / fu.patrimonio, 2)}×` : "—"],
+        ["ROE (últimos 12 meses)", fu.utilidad_12m != null && fu.patrimonio ? pct(fu.utilidad_12m / fu.patrimonio * 100, 1) : "—"],
+        !banco && ["Ventas 12 meses", fu.ventas_12m ? `US$ ${fmt(fu.ventas_12m / 1e9, 2)} mM` : "—"],
+        !banco && ["Margen neto", fu.utilidad_12m != null && fu.ventas_12m ? pct(fu.utilidad_12m / fu.ventas_12m * 100, 1) : "—"],
+        ["Resultado 12 meses", fu.utilidad_12m != null ? `US$ ${fmt(fu.utilidad_12m / 1e9, 2)} mM` : "—"], ["Patrimonio", fu.patrimonio ? `US$ ${fmt(fu.patrimonio / 1e9, 2)} mM` : "—"],
+        ["Beta (del ADR)", fmt(i.beta, 2)]])
+        + `<div class="note">Estados contables en pesos (último balance: ${dmy(fu.patrimonio_fecha)}) pasados a dólares al CCL de hoy; la suma de los últimos 4 trimestres mezcla pesos de distintos momentos, por eso es aproximado. ${banco ? "En bancos se mira sobre todo precio/valor libro y ROE." : ""}</div>`;
+    }
+    const bal = adr && (h.balances || []).length ? `<h3>Últimos balances (ADR)</h3>` + table(["Trimestre", "EPS esperado", "EPS real", "Sorpresa"], h.balances.map((b) => [esc(b.trimestre ? dmy(b.trimestre) : "—"), fmt(b.estimado, 2), fmt(b.real, 2), chg(b.sorpresa, 1)]), [0]) : "";
+    const rc = h.recomendaciones, totR = rc ? Object.values(rc).reduce((a, b) => a + b, 0) : 0;
+    const ana = adr && (i.recom || totR) ? `<h3>Analistas (ADR)</h3>` + kv([["Recomendación promedio", i.recom ? esc(RECOM[i.recom] || i.recom) : "—"], ["Analistas", i.analistas ?? totR],
+      ["Precio objetivo del ADR", i.objetivo && adrUlt ? `US$ ${fmt(i.objetivo, 2)} ${chg((i.objetivo / adrUlt - 1) * 100, 1)}` : "—"]])
+      + (totR ? `<div class="recom">${[["strongBuy", "rc1"], ["buy", "rc2"], ["hold", "rc3"], ["sell", "rc4"], ["strongSell", "rc5"]].filter(([k]) => rc[k]).map(([k, c]) => `<span class="${c}" style="flex:${rc[k]}">${rc[k]}</span>`).join("")}</div>
+        <div class="recom-ley"><span class="rc1">Compra fuerte</span><span class="rc2">Compra</span><span class="rc3">Mantener</span><span class="rc4">Venta</span><span class="rc5">Venta fuerte</span></div>` : "") : "";
+    // noticias: titulares de los diarios argentinos que nombran a la empresa, más las del ADR
+    const claves = (h.buscar || []).map((w) => w.toLowerCase());
+    const locales = (((blk(P, "news") || {}).argentina) || []).filter((x) => claves.some((w) => (x.titulo || "").toLowerCase().includes(w)))
+      .map((x) => ({ titulo: x.titulo, url: x.url, fecha: x.hora, fuente: x.fuente }));
+    const notas = [...locales, ...(h.noticias || [])].slice(0, 8);
+    const noticias = notas.length ? `<ul class="news">${notas.map((x) => `<li><span class="t">${x.fecha ? hhmm(x.fecha) : ""}</span><span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo)}</a> <span class="f">${esc(x.fuente || "")}</span></span></li>`).join("")}</ul>`
+      : `<div class="empty">Sin noticias recientes que la nombren.</div>`;
+    cuerpo.innerHTML = `<div class="strip">${strip.map(([k, v]) => `<span><b>${k}</b> ${v}</span>`).join("")}</div>
+      <div id="acc-graf"></div>
+      <h3>Rendimiento comparado</h3>${rendT}
+      <div class="ficha-cols"><div><h3>Mercado</h3>${mercado}${adrHtml}</div><div>${val || `<h3>Datos de la empresa</h3><div class="empty">${adr ? "Sin datos contables." : "No tiene ADR: no hay una fuente gratis confiable de sus balances."}</div>`}</div></div>
+      ${bal || ana ? `<div class="ficha-cols"><div>${bal}</div><div>${ana}</div></div>` : ""}
+      <h3>Noticias</h3>${noticias}
+      <div class="note">Fuente: ${esc(h.fuente || "")}, actualizado ${hhmm(h.updated)}. Precios ajustados por dividendos. Sector: promedio simple de las otras acciones del panel del mismo sector, en dólares.</div>`;
+    graficoAccion(h);
+  }
+  function graficoAccion(h) {
+    const g = $("#acc-graf"); if (!g || !h || h.f.length < 2) return;
+    const modo = fichaAbierta.modo;
+    const botones = `<div class="togs">${[["u", "En dólares (CCL)"], ["p", "En pesos"], ["c", "Contra Merval y sector"]].map(([k, n]) => `<button class="tog" data-modo="${k}" aria-pressed="${modo === k}">${esc(n)}</button>`).join("")}</div>`;
+    const b = (arr) => { const k = (arr || []).findIndex((v) => v != null); return (arr || []).map((v) => (v == null || k < 0 ? null : (v / arr[k]) * 100)); };
+    if (modo === "c") {
+      const extra = [...(h._mvUsd ? [{ ys: b(h._mvUsd), cls: "s2" }] : []), ...(h.sector_idx ? [{ ys: b(h.sector_idx), cls: "s3" }] : [])];
+      g.innerHTML = botones + serieTiempo(h.f, b(h._usd), { dec: 0, suf: "", titulo: `${h.ticker} contra Merval y sector`, base: 100, extra,
+        leyenda: [["s1", h.ticker], ...(h._mvUsd ? [["s2", "Merval"]] : []), ...(h.sector_idx ? [["s3", h.sector]] : [])] }) + `<div class="note">En dólares CCL, base 100 hace un año.</div>`;
+    } else if (modo === "p") g.innerHTML = botones + serieTiempo(h.f, h.p, { dec: dec(h.p[h.p.length - 1]), suf: "", titulo: `${h.ticker} en pesos` });
+    else g.innerHTML = botones + serieTiempo(h.f, h._usd, { dec: dec(h._usd[h._usd.length - 1]), suf: "", titulo: `${h.ticker} en dólares CCL` }) + `<div class="note">Precio en pesos dividido por el CCL de cada día.</div>`;
   }
 
   const VIEWS = { resumen: viewResumen, eeuu: viewEEUU, ar_macro: viewArMacro, ar_usd: viewArUSD, ar_pesos: viewArPesos, ar_acciones: viewArAcciones,
@@ -920,6 +1030,7 @@
     if (!box.hidden && (e.target.closest(".cerrar") || e.target === box)) { box.hidden = true; return; }
     const tr = e.target.closest("tr[data-tk]"); if (tr) abrirFlujos(tr.dataset.tk);
     const te = e.target.closest("tr[data-emp]"); if (te) abrirEmpresa(te.dataset.emp);
+    const ta = e.target.closest("tr[data-acc]"); if (ta) abrirAccion(ta.dataset.acc);
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#ficha").hidden = true; });
   document.addEventListener("click", (e) => {
