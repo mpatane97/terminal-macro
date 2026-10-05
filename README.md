@@ -33,7 +33,7 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 
 | Archivo | Para qué |
 | --- | --- |
-| `docs/index.html`, `docs/app.js`, `docs/style.css` | La página: pestañas, tablas, gráficos, calendario y ficha de cada bono y empresa (clic en la fila). |
+| `docs/index.html`, `docs/app.js`, `docs/style.css` | La página: pestañas, tablas, gráficos, calendario y ficha de cada bono, empresa y acción argentina (clic en la fila). |
 | `scripts/common.py` | Pedidos HTTP con reintentos, bloques con último dato válido, corrida en paralelo. |
 | `scripts/fetch_prices.py` | Precios: mercados, dólares, bonos y acciones argentinas, cauciones, probabilidades de la Fed, noticias. |
 | `scripts/fetch_daily.py` | Datos diarios: macro EE.UU., Fed, Treasuries, BCRA, INDEC, REM, bandas, dólar futuro, calendarios, balances, feriados. |
@@ -41,10 +41,11 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | `scripts/lecaps.py` | Alta automática de LECAP/BONCAP y bonos CER nuevos. |
 | `scripts/licitaciones.py` | Resultado de las licitaciones del Tesoro (noticias de Finanzas). |
 | `scripts/empresas.py` | Ficha de cada empresa: historia de precio contra S&P 500 y sector, valuación, negocio, balances, analistas y noticias. |
+| `scripts/acciones_ar.py` | Ficha de cada acción del panel líder: en pesos y dólares CCL, contra Merval y sector, ADR y valuación aproximada. |
 | `scripts/fichas.py` | Historia de un año de cada bono y letra (precio y TIR/TEM de cada día) para la ficha. |
 | `scripts/indec.py` | Lectura del calendario de difusión del INDEC (PDF). |
 | `scripts/feriados.py` | Feriados de Argentina y de las bolsas del exterior. |
-| `config/instruments.json` | Qué se muestra: índices, monedas, commodities, empresas, acciones, CEDEARs, sectores, bancos centrales, feeds de noticias. |
+| `config/instruments.json` | Qué se muestra: índices, monedas, commodities, empresas, acciones (con su ADR y ratio), CEDEARs, sectores, bancos centrales, feeds de noticias. |
 | `config/bonos.json` | Condiciones de emisión de bonos en dólares, BOPREAL y CER. También los pagos finales de LECAP cargados a mano, que ya no hace falta mantener. |
 | `config/calendario_ar.json` | Eventos argentinos extra para sumar a mano (opcional). |
 | `tests/mock_run.py` | Prueba sin internet: corre todo con respuestas simuladas. |
@@ -93,6 +94,7 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | Licitaciones del Tesoro | PDF del cronograma de Finanzas | — | anuncios "Llamado a licitación" |
 | Resultado de licitaciones | Noticias de la Secretaría de Finanzas (tablas del resultado) | — | comunicado del Ministerio de Economía |
 | Ficha de empresas (valuación, negocio, balances, analistas, noticias, historia) | Yahoo Finance (yfinance) | Finnhub (datos), Stooq (precios) | Financial Modeling Prep (con clave) |
+| Ficha de acciones argentinas | BYMA (historia), argentinadatos (CCL), Yahoo (Merval, ADR y estados contables) | cierres de data912; Stooq para ADRs | — |
 | Historia de bonos y letras (ficha) | BYMA open data (serie histórica 24hs) | bonos en dólares: cierres guardados de data912 | — |
 | Dólar linked | data912.com (precios) + A3500 del BCRA | BYMA open data | — |
 | Tasas de política (Fed, BCE, BoE, BoJ, Selic) | FRED (Fed, BCE), Bank of England, BIS (BoJ), Banco Central do Brasil (Selic) | Selic: BIS | páginas de cada banco central |
