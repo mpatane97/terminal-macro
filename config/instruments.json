@@ -845,7 +845,7 @@
       "YPFD": {
         "nombre": "YPF",
         "adr": "YPF",
-        "ratio": 1,
+        "ratio": 10,
         "buscar": [
           "YPF"
         ]
