@@ -4,7 +4,8 @@ import io
 import json
 import random
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+import re
 from pathlib import Path
 
 import numpy as np
@@ -81,6 +82,17 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
                     "<th>VE Adjudicado</th><th>Precio</th><th>TIREA</th></tr><tr><td>LECAP S30N6 (Reapertura)</td><td>$ 5.000.000</td>"
                     "<td>$ 6.085.000</td><td>$ 1.217,00</td><td>29,75%</td></tr></table>")
         return _R
+    if "historical-series/history" in url:
+        sym = p["symbol"].split()[0]
+        base = (61.8 if sym.endswith("D") and sym[:2] in ("AL", "GD", "AE", "AO", "AN") else 91 if sym.startswith("BP")
+                else 151000 if re.fullmatch(r"D\d\d[A-Z]\d", sym) else 300 if sym.startswith(("TZX", "TX", "X")) else 115)
+        t0 = int(datetime(2025, 10, 6, 3, tzinfo=timezone.utc).timestamp())
+        ts = [t0 + 86400 * k for k in range(365) if datetime.fromtimestamp(t0 + 86400 * k, timezone.utc).weekday() < 5]
+        cs, v = [], base * 0.9
+        for _ in ts:
+            v *= 1 + random.uniform(-0.004, 0.0055)
+            cs.append(round(v, 3))
+        return {"s": "ok", "t": ts, "c": cs, "v": [random.randint(1, 9) * 1e8 for _ in ts]}
     if "stats.bis.org" in url:
         class _B:
             text = ('FREQ,REF_AREA,COMPILATION,TIME_PERIOD,OBS_VALUE\n'
@@ -163,7 +175,7 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
         idv = int(url.rsplit("/", 1)[1])
         lvl = {1: 47482, 5: 1522, 78: 100, 30: 841.6}.get(idv, 10)
         if idv == 30:
-            return {"results": [{"idVariable": 30, "detalle": [{"fecha": (TODAY - timedelta(days=k)).isoformat(), "valor": 847.76 - 0.42 * k} for k in range(40)]}]}
+            return {"results": [{"idVariable": 30, "detalle": [{"fecha": (TODAY - timedelta(days=k)).isoformat(), "valor": 847.76 - 0.42 * k} for k in range(420)]}]}
         return {"results": [{"idVariable": idv, "detalle": [{"fecha": d, "valor": v} for d, v in series(380, lvl, lvl * 0.004)]}]}
     if "apis.datos.gob.ar" in url:
         return {"data": [["2026-07-01", 0.019, 0.33], ["2026-08-01", 0.0211, 0.318]]}
@@ -274,5 +286,8 @@ OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
     ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales"]})
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
+import fichas  # noqa: E402
+fichas.http_get = fake_get
+d["fichas_bonos"] = common.run_blocks(OUT / "fichas_run.json", {"fichas_bonos": fetch_daily.fichas_bonos})["fichas_bonos"]
 bad = {k: v["error"] for src in (d, p) for k, v in src.items() if isinstance(v, dict) and v.get("error")}
 print("errores:", json.dumps(bad, ensure_ascii=False, indent=1) if bad else "ninguno")
