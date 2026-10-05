@@ -276,7 +276,21 @@ class _FI:
     market_cap = 1.5e12
     currency = "USD"
 class _T:
-    def __init__(self, t): self.fast_info = _FI()
+    def __init__(self, t):
+        self.fast_info = _FI()
+        self.info = {"quoteType": "EQUITY", "longName": f"{t} Inc.", "sector": "Technology", "industry": "Semiconductors", "country": "United States",
+                     "currency": "USD", "financialCurrency": "USD", "marketCap": 1.5e12, "beta": 1.2, "trailingPE": 31.5, "forwardPE": 26.1,
+                     "enterpriseToEbitda": 22.3, "priceToSalesTrailing12Months": 8.1, "priceToBook": 12.0, "dividendRate": 1.04, "currentPrice": 250.0,
+                     "payoutRatio": 0.25, "revenueGrowth": 0.12, "earningsGrowth": 0.18, "grossMargins": 0.46, "operatingMargins": 0.31,
+                     "profitMargins": 0.24, "returnOnEquity": 0.35, "totalRevenue": 4e11, "ebitda": 1.3e11, "freeCashflow": 1e11,
+                     "totalDebt": 1e11, "totalCash": 6e10, "fiftyTwoWeekHigh": 260.0, "fiftyTwoWeekLow": 170.0, "recommendationKey": "buy",
+                     "recommendationMean": 1.9, "numberOfAnalystOpinions": 41, "targetMeanPrice": 280.0, "targetHighPrice": 330.0, "targetLowPrice": 200.0}
+        self.earnings_history = pd.DataFrame({"epsEstimate": [1.5, 1.6, 1.62, 1.7], "epsActual": [1.6, 1.58, 1.7, 1.81],
+                                              "surprisePercent": [0.0667, -0.0125, 0.0494, 0.0647]},
+                                             index=pd.to_datetime(["2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"]))
+        self.recommendations = pd.DataFrame({"period": ["0m"], "strongBuy": [12], "buy": [20], "hold": [8], "sell": [1], "strongSell": [0]})
+        self.news = [{"content": {"title": f"{t} sube tras su balance", "pubDate": "2026-10-02T14:00:00Z", "provider": {"displayName": "Reuters"},
+                                  "canonicalUrl": {"url": "https://example.com/nota"}}}]
 import yfinance
 yfinance.Ticker = _T
 fetch_prices.feedparser.parse = fake_parse
@@ -288,6 +302,7 @@ d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 import fichas  # noqa: E402
 fichas.http_get = fake_get
+d["fichas_empresas"] = common.run_blocks(OUT / "fichas_run2.json", {"fichas_empresas": fetch_daily.fichas_empresas})["fichas_empresas"]
 d["fichas_bonos"] = common.run_blocks(OUT / "fichas_run.json", {"fichas_bonos": fetch_daily.fichas_bonos})["fichas_bonos"]
 bad = {k: v["error"] for src in (d, p) for k, v in src.items() if isinstance(v, dict) and v.get("error")}
 print("errores:", json.dumps(bad, ensure_ascii=False, indent=1) if bad else "ninguno")
