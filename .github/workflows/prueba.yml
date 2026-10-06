@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-24.04   # fijo: "latest" pasa a Ubuntu 26 el 19/10/2026; se cambia a propósito, no solo
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: requirements.txt
