@@ -17,17 +17,22 @@ fuentes públicas ──► GitHub Actions (scripts/*.py) ──► rama "datos"
 | Corrida (Actions) | Cuándo (hora Argentina) | Qué hace | Tarda |
 | --- | --- | --- | --- |
 | **Precios cada 15 min** | lun a vie, 10:07 a 17:12 | `scripts/fetch_prices.py` → `prices.json` | ~20 s |
-| **Datos diarios** | lun a vie, 20:07 | `scripts/fetch_daily.py` → `daily.json` | ~1 min |
+| **Datos diarios** | lun a vie, 20:07 | `scripts/fetch_daily.py` → `daily.json` y `fichas/` | ~1 min |
 | **Prueba** | cada vez que se sube algo a `main` | `tests/regresion.py` + `tests/mock_run.py`: si falla, GitHub manda un mail | ~1 min |
 | **Mantenimiento mensual** | día 1 de cada mes | reactiva las corridas y deja un commit, para que GitHub no las apague por inactividad | segundos |
 
 - **Rama `main`**: el código. Solo cambia cuando se sube una actualización.
 - **Rama `datos`**: los datos (incluye la carpeta `fichas/`, un archivo por bono con su historia). Cada corrida la reescribe con un único commit, así el repositorio no crece.
 - Cada fuente es un "bloque" independiente que corre en paralelo con los demás. Si una fuente falla, ese bloque conserva su último dato válido marcado como viejo (punto amarillo en el panel), y el resto se actualiza igual.
-- Arriba a la derecha aparece el aviso rojo **"! N datos a revisar"** si un dato lleva más de 2 días hábiles sin actualizarse o si un valor no tiene sentido (un bono que salta más de 15% en el día, una TEM o TIR fuera de rango, un CCL implícito lejos del CCL).
+- Arriba a la derecha aparece el aviso rojo **"! N datos a revisar"** si un dato lleva más de 2 días hábiles sin actualizarse, si un valor no tiene sentido, si el ratio de un ADR no cierra con el CCL o si falta una condición (por ejemplo, el margen de un bono TAMAR nuevo) (un bono que salta más de 15% en el día, una TEM o TIR fuera de rango, un CCL implícito lejos del CCL).
 - Las librerías tienen versión fija en `requirements.txt`: se actualizan a propósito, no solas.
 
 GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el repositorio pasa 60 días sin cambios, GitHub desactiva las corridas programadas; se reactivan desde la pestaña Actions.
+
+## Uso
+
+- **Buscador** (arriba, o tecla `/`): escribí un ticker o un nombre (GD30, MELI, Galicia) y Enter abre su ficha.
+- **Fichas**: cualquier fila con `›` (bonos, letras, acciones, ADRs, empresas y "Qué se movió hoy") abre la ficha del activo.
 
 ## Archivos
 
@@ -42,6 +47,7 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | `scripts/licitaciones.py` | Resultado de las licitaciones del Tesoro (noticias de Finanzas). |
 | `scripts/empresas.py` | Ficha de cada empresa: historia de precio contra S&P 500 y sector, valuación, negocio, balances, analistas y noticias. |
 | `scripts/acciones_ar.py` | Ficha de cada acción del panel líder: en pesos y dólares CCL, contra Merval y sector, ADR y valuación aproximada. |
+| `scripts/tamar.py` | Bonos TAMAR: TAMAR promedio del período, pago final proyectado y valor técnico. |
 | `scripts/fichas.py` | Historia de un año de cada bono y letra (precio y TIR/TEM de cada día) para la ficha. |
 | `scripts/indec.py` | Lectura del calendario de difusión del INDEC (PDF). |
 | `scripts/feriados.py` | Feriados de Argentina y de las bolsas del exterior. |
@@ -62,9 +68,12 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
   - Pagos de deuda: flujos propios.
   - Feriados.
 - **Splits y cambios de ratio de acciones y CEDEARs.** Se ajusta la historia de precios.
+- **Panel general.** Cada día se eligen las 15 acciones más operadas fuera del panel líder (`panel_general_cantidad`).
 
 ## Qué sigue siendo manual (y avisa si se queda sin datos)
 
+- Margen sobre TAMAR de cada bono TAMAR nuevo: `config/instruments.json` → `tamar_margenes` (sale del resultado de su licitación). Los bonos nuevos aparecen solos; si falta el margen, aparece el aviso rojo.
+- Ratio de cada ADR argentino: `config/instruments.json` → `argentina.empresas`. Si una empresa cambia el ratio (como YPF), el aviso rojo lo detecta.
 - Fechas de decisión del BCE, Banco de Inglaterra, Banco de Japón y Copom: `config/instruments.json` → `bancos_centrales`. Cargadas hasta mediados de 2027. Si un banco se queda sin fechas futuras, aparece el aviso rojo.
 - Bonos en dólares con cupón (AL/GD, AO/AN, BOPREAL) y CER con cupón (TX26/TX28/TX31): sus condiciones están en `config/bonos.json`. Solo hay que tocarlo si se emite un bono nuevo de este tipo.
 
@@ -75,7 +84,7 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | Dato | Fuente principal | Respaldo automático | Alternativa posible (no implementada) |
 | --- | --- | --- | --- |
 | Índices, futuros, monedas, commodities, cripto, sectores, ETFs, ADRs, empresas | Yahoo Finance (yfinance) | Stooq, símbolo por símbolo (no cubre Russell 2000, VIX, Merval ni Aramco) | Alpha Vantage (con clave) |
-| Capitalización de empresas | Yahoo Finance | — | Financial Modeling Prep (con clave) |
+| Capitalización de empresas | Yahoo Finance (sale de la ficha de cada empresa) | — | Financial Modeling Prep (con clave) |
 | Dólares (mayorista, MEP, CCL, blue, cripto) | dolarapi.com | argentinadatos.com (último dato de cada casa) | Ámbito |
 | Bonos, letras, acciones y CEDEARs argentinos | data912.com | BYMA open data (paneles públicos; sin MEP/CCL implícito de CEDEARs) | — |
 | Historia de precios argentinos | data912.com (histórico) | se arma sola con los cierres diarios | BYMA serie histórica |
@@ -96,6 +105,8 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | Ficha de empresas (valuación, negocio, balances, analistas, noticias, historia) | Yahoo Finance (yfinance) | Finnhub (datos), Stooq (precios) | Financial Modeling Prep (con clave) |
 | Ficha de acciones argentinas | BYMA (historia), argentinadatos (CCL), Yahoo (Merval, ADR y estados contables) | cierres de data912; Stooq para ADRs | — |
 | Historia de bonos y letras (ficha) | BYMA open data (serie histórica 24hs) | bonos en dólares: cierres guardados de data912 | — |
+| Bonos TAMAR (TIR) | BCRA (TAMAR bancos privados) + fechas de la ficha de BYMA + margen de licitación (`tamar_margenes` en config) | — | — |
+| Panel general (más operadas) | data912 (monto operado) | — | BYMA paneles |
 | Dólar linked | data912.com (precios) + A3500 del BCRA | BYMA open data | — |
 | Tasas de política (Fed, BCE, BoE, BoJ, Selic) | FRED (Fed, BCE), Bank of England, BIS (BoJ), Banco Central do Brasil (Selic) | Selic: BIS | páginas de cada banco central |
 | Condiciones de LECAP/BONCAP nuevas | Ficha técnica de BYMA | Resultado de licitación de Finanzas | carga en `bonos.json` |
