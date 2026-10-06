@@ -18,12 +18,26 @@ BYMA_HIST = "https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free/
 AR = timezone(timedelta(hours=-3))
 
 
+# BYMA responde 503 si recibe muchos pedidos juntos: como mucho 4 a la vez entre todos los bloques
+# (fichas de bonos, fichas de acciones e historia de precios corren en paralelo).
+_BYMA_SEM = __import__("threading").Semaphore(4)
+
+
 def historia_byma(simbolo, dias=380):
     """[(fecha, cierre, volumen)] de la especie en BYMA, plazo 24hs."""
+    import time
     hasta = datetime.now(AR)
-    js = http_get(BYMA_HIST, params={"symbol": f"{simbolo} 24HS", "resolution": "D",
-                                     "from": int((hasta - timedelta(days=dias)).timestamp()), "to": int(hasta.timestamp())},
-                  headers={"Accept": "application/json"}, timeout=25)
+    params = {"symbol": f"{simbolo} 24HS", "resolution": "D",
+              "from": int((hasta - timedelta(days=dias)).timestamp()), "to": int(hasta.timestamp())}
+    for intento in range(3):
+        with _BYMA_SEM:
+            try:
+                js = http_get(BYMA_HIST, params=params, headers={"Accept": "application/json"}, timeout=25, retries=0)
+                break
+            except Exception:  # noqa: BLE001
+                if intento == 2:
+                    raise
+        time.sleep(3 * (intento + 1))  # esperar fuera del semáforo, así no frena a los demás
     if not isinstance(js, dict) or js.get("s") != "ok":
         return []
     out = []
@@ -147,7 +161,13 @@ def armar(papeles, cer, a3500, cierres_respaldo, carpeta):
         ok = sum(1 for r in ex.map(uno, sorted(papeles)) if r)
     if not ok:
         raise RuntimeError(f"ninguna historia disponible ({len(errores)} errores)")
-    avisos = [f"Ficha de {t}: sin historia de precios ({errores[t]})" for t in sorted(errores)] if len(errores) > 3 else []
+    # si un papel falla hoy queda su ficha de ayer: solo se avisa si no tiene ficha o tiene más de 3 días
+    avisos = []
+    limite = (datetime.now(AR) - timedelta(days=3)).timestamp()
+    for t in sorted(errores):
+        f = carpeta / f"{t}.json"
+        if not f.exists() or f.stat().st_mtime < limite:
+            avisos.append(f"Ficha de {t}: sin historia de precios desde hace más de 3 días ({errores[t][:60]})")
     return {"papeles": ok, "sin_historia": sorted(errores), "avisos": avisos, "errores": dict(list(errores.items())[:10])}
 
 
