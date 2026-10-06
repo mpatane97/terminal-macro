@@ -147,7 +147,8 @@ def armar(papeles, cer, a3500, cierres_respaldo, carpeta):
         ok = sum(1 for r in ex.map(uno, sorted(papeles)) if r)
     if not ok:
         raise RuntimeError(f"ninguna historia disponible ({len(errores)} errores)")
-    return {"papeles": ok, "sin_historia": sorted(errores), "errores": dict(list(errores.items())[:10])}
+    avisos = [f"Ficha de {t}: sin historia de precios ({errores[t]})" for t in sorted(errores)] if len(errores) > 3 else []
+    return {"papeles": ok, "sin_historia": sorted(errores), "avisos": avisos, "errores": dict(list(errores.items())[:10])}
 
 
 def papeles_de(ar_market, bonos_cfg, hoy):

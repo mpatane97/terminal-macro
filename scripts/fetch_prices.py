@@ -3,7 +3,7 @@ probabilidades de la Fed y noticias. Escribe docs/data/prices.json."""
 import calendar
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import feedparser
 import pandas as pd
@@ -364,6 +364,11 @@ def ar_market():
                  "vol": _vol(stocks.get(t)), **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a["acciones"]])
     panel = _marcar_operados([{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
               "vol": _vol(stocks.get(t)), **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a.get("panel_lider", [])])
+    # panel general: las más operadas (las elige la corrida diaria por monto promedio de 20 ruedas)
+    pg = read_json(HIST / "panel_general.json", {}) or {}
+    general = _marcar_operados([{"ticker": t, "nombre": (pg.get("nombres") or {}).get(t), "precio": num(stocks.get(t, {}).get("c")),
+                "d": num(stocks.get(t, {}).get("pct_change")), "vol": _vol(stocks.get(t)), "monto_prom": (pg.get("monto_prom") or {}).get(t),
+                **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in pg.get("tickers", []) if t in stocks])
 
     ced = {r["symbol"]: r for r in _d912("/live/arg_cedears")}
     def opcional(path):  # MEP/CCL implícitos: sin equivalente en BYMA; si data912 no responde, quedan vacíos
@@ -398,13 +403,15 @@ def ar_market():
     for r in (soberanos + bopreal) if today else []:
         if r.get("usd"):
             hist.setdefault(_usd_ticker(r["ticker"]), {})[today] = r["usd"]
-    for r in (acciones + panel + cedears) if today else []:
+    for r in (acciones + panel + general + cedears) if today else []:
         if r.get("precio"):
             hist.setdefault(r["ticker"], {})[today] = r["precio"]
     write_json(HIST / "ar_closes.json", _trim(hist))
 
     return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar, "dolar_linked": dl, "a3500_ref": a35,
-            "acciones": acciones, "panel_lider": panel, "cedears": cedears, "cedears_mega": mega, "sectores": a.get("sectores", {}), "liquidacion": settle.isoformat()}, \
+            "acciones": acciones, "panel_lider": panel, "panel_general": general, "cedears": cedears,
+            "nombres": {**{t: e.get("nombre") for t, e in a.get("empresas", {}).items()}, **(pg.get("nombres") or {})},
+            "adr_local": {e["adr"]: t for t, e in a.get("empresas", {}).items() if e.get("adr")}, "cedears_mega": mega, "sectores": a.get("sectores", {}), "liquidacion": settle.isoformat()}, \
         ("data912.com (secundaria)" if not RESPALDOS else "BYMA open data (respaldo; data912 no respondió)") + "; TIR y TEM: cálculo propio"
 
 
@@ -443,9 +450,29 @@ def _cer_tamar(px, settle, a):
                     row.update({"tir": m["tir"], "dur_mod": m["dur_mod"], "coef_cer": coef,
                                 "dias_vto": m["dias_vto"], "dias_prox": m["dias_prox"]})
         out.append(row)
-    for t in a.get("tamar", []):
+    # bonos TAMAR: pago final proyectado (scripts/tamar.py, corrida diaria) → TIR con el precio de ahora
+    terms = read_json(HIST / "tamar_terms.json", {}) or {}
+    for t in sorted(set(a.get("tamar", [])) | set(terms), key=lambda x: (terms.get(x) or {}).get("vto") or "9"):
         r = px.get(t, {})
-        out.append({"ticker": t, "tipo": "TAMAR", "precio": num(r.get("c")), "d": num(r.get("pct_change")), "vol": _vol(r)})
+        p = num(r.get("c"))
+        e = terms.get(t) or {}
+        if t not in a.get("tamar", []) and not p:
+            continue
+        row = {"ticker": t, "tipo": "TAMAR", "precio": p, "d": num(r.get("pct_change")), "vol": _vol(r), "vto": e.get("vto")}
+        if e.get("vto"):
+            row["dias_vto"] = (date.fromisoformat(e["vto"]) - settle).days
+            row["cond"] = {"emision": e.get("emision"), "vto": e["vto"], "margen": e.get("margen"), "tamar_prom": e.get("tamar_prom"),
+                           "tamar_publicada": e.get("tamar_publicada"), "tamar_ultima": e.get("tamar_ultima"),
+                           "dias_publicados": e.get("dias_publicados"), "dias_totales": e.get("dias_totales"),
+                           "tem": e.get("tem"), "pago_final": e.get("pago_final"), "valor_tecnico": e.get("valor_tecnico")}
+        pf = e.get("pago_final")
+        if pf and p and row.get("dias_vto", 0) > 0:
+            g = pf / p
+            row.update({"tir": (g ** (365 / row["dias_vto"]) - 1) * 100, "tna": (g - 1) * 365 / row["dias_vto"] * 100,
+                        "tem_mercado": (g ** (30 / row["dias_vto"]) - 1) * 100, "pago_final": pf,
+                        "paridad": p / e["valor_tecnico"] * 100 if e.get("valor_tecnico") else None,
+                        "flujos": [[e["vto"], 100.0, round(pf - 100, 4), 100.0, round(pf, 4)]]})
+        out.append(row)
     return out
 
 
@@ -527,7 +554,8 @@ def _cauciones_byma():
             dias = it.get("daysToMaturity") or it.get("term") or it.get("plazo")
             tasa = it.get("trade") or it.get("closingPrice") or it.get("vwap")
             if dias and tasa and int(dias) in PLAZOS_CAUCION:
-                out[int(dias)] = (float(tasa), None)
+                t = float(tasa)
+                out[int(dias)] = (t * 100 if t < 2 else t, None)  # BYMA la da como fracción (0,201 = 20,1%)
         if out:
             return out
     return {}

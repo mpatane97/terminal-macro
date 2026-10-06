@@ -345,7 +345,8 @@ def ar_backfill():
     def usd(t):
         m = re.fullmatch(r"BPO([A-D]\d)", t)
         return f"BP{m.group(1)}D" if m else t + "D"
-    acciones = list(dict.fromkeys(a["acciones"] + a.get("panel_lider", [])))
+    pg = (read_json(HIST / "panel_general.json", {}) or {}).get("tickers", [])
+    acciones = list(dict.fromkeys(a["acciones"] + a.get("panel_lider", []) + pg))
     pedidos = [("bonds", usd(t)) for t in a["soberanos_usd"] + a["bopreal"]] + \
               [("stocks", t) for t in acciones] + [("cedears", t) for t in a["cedears"]]
     hechos, errores = 0, {}
@@ -705,16 +706,28 @@ def earnings():
     d = today_ar()
     mega = [it["id"] for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion") for it in CFG["mercados"].get(g, [])]
     universe = set(CFG["earnings_top20"]) | set(CFG.get("watchlist", [])) | set(mega)
-    # Finnhub recorta los pedidos por rango: se consulta empresa por empresa (límite 60/min)
+    # Finnhub recorta los pedidos por rango: se consulta empresa por empresa. Límite: 60 por minuto y 30 por
+    # segundo; con menos de 50 empresas se piden en paralelo sin esperar (antes, 1 por segundo: ~45 s).
+    from concurrent.futures import ThreadPoolExecutor
+    pausa = 0 if len(universe) <= 50 else 1.1
+
+    def una(sym):
+        for intento in range(2):
+            try:
+                r = http_get("https://finnhub.io/api/v1/calendar/earnings",
+                             params={"symbol": sym, "from": d.isoformat(), "to": (d + timedelta(days=90)).isoformat(),
+                                     "token": FINNHUB_KEY}, retries=0).get("earningsCalendar", [])
+                time.sleep(pausa)
+                return r
+            except Exception as e:  # noqa: BLE001
+                if intento:
+                    log.warning("earnings %s: %s", sym, e)
+                time.sleep(3)  # probablemente el límite por segundo: se espera y se reintenta una vez
+        return []
     filas = []
-    for sym in sorted(universe):
-        try:
-            filas += http_get("https://finnhub.io/api/v1/calendar/earnings",
-                              params={"symbol": sym, "from": d.isoformat(), "to": (d + timedelta(days=90)).isoformat(),
-                                      "token": FINNHUB_KEY}).get("earningsCalendar", [])
-        except Exception as e:  # noqa: BLE001
-            log.warning("earnings %s: %s", sym, e)
-        time.sleep(1.1)
+    with ThreadPoolExecutor(max_workers=4 if not pausa else 1) as ex:
+        for r in ex.map(una, sorted(universe)):
+            filas += r
     js = {"earningsCalendar": filas}
     out = [{"fecha": r["date"], "ticker": r["symbol"], "hora": {"bmo": "antes de apertura", "amc": "después del cierre"}.get(r.get("hour"), r.get("hour")),
             "eps_estimado": r.get("epsEstimate")}
@@ -897,9 +910,95 @@ def fichas_empresas():
 def fichas_acciones():
     """Ficha de cada acción argentina del panel líder: historia en pesos y dólares, Merval, sector y ADR."""
     import acciones_ar
+    pg = read_json(HIST / "panel_general.json", {}) or {}
     res = acciones_ar.armar(CFG["argentina"], DATA / "fichas" / "acc", read_json(HIST / "dolares.json", {}) or {},
-                            read_json(HIST / "ar_closes.json", {}) or {})
+                            read_json(HIST / "ar_closes.json", {}) or {}, extra=pg.get("tickers", []), nombres=pg.get("nombres", {}))
     return res, "BYMA (serie 24hs), argentinadatos (CCL), Yahoo Finance (Merval y ADR)"
+
+
+def tamar_terms():
+    """Bonos TAMAR: fechas (ficha de BYMA), margen (config) y TAMAR promedio del período, para la TIR en precios."""
+    import lecaps
+    import tamar
+    a = CFG["argentina"]
+    margenes = a.get("tamar_margenes", {})
+    previos = read_json(HIST / "tamar_terms.json", {}) or {}
+    tickers = sorted(set(a.get("tamar", [])) | set(margenes) | {t for t in _tickers_d912() if re.match(tamar.PATRON, t)})
+    serie = [(d, v) for d, v in _bcra_series(44, days=900) if v is not None]  # TAMAR bancos privados
+    out, faltan = {}, []
+    for t in tickers:
+        e = dict(previos.get(t) or {})
+        if not e.get("emision") or not e.get("vto"):
+            try:
+                f = lecaps.ficha_byma(t) or {}
+                e["emision"], e["vto"] = str(f.get("fechaEmision") or "")[:10] or None, str(f.get("fechaVencimiento") or "")[:10] or None
+            except Exception as ex:  # noqa: BLE001
+                log.warning("ficha BYMA %s: %s", t, ex)
+        if not e.get("emision") or not e.get("vto") or e["vto"] <= today_ar().isoformat():
+            if e.get("vto", "9") > today_ar().isoformat():
+                faltan.append(f"{t}: sin fechas de emisión/vencimiento")
+            continue
+        e["margen"] = margenes.get(t)
+        if e["margen"] is None:
+            faltan.append(f"{t}: falta el margen sobre TAMAR en config/instruments.json (tamar_margenes)")
+        em, vt = date.fromisoformat(e["emision"]), date.fromisoformat(e["vto"])
+        p = tamar.tamar_promedio(serie, em, vt)
+        if p and e["margen"] is not None:
+            e.update({"tamar_prom": p[0], "tamar_publicada": p[1], "dias_publicados": p[2], "dias_totales": p[3], "tamar_ultima": p[4],
+                      "tem": tamar.tem(p[0], e["margen"]) * 100, "pago_final": tamar.pago_final(em, vt, p[0], e["margen"]),
+                      "valor_tecnico": tamar.valor_tecnico(em, today_ar(), p[1], e["margen"])})
+        out[t] = e
+    write_json(HIST / "tamar_terms.json", out)
+    return {"bonos": out, "faltan": faltan, "tamar_ultima": serie[-1] if serie else None}, \
+        "BCRA (TAMAR bancos privados), BYMA (fechas), margen de licitación (config)"
+
+
+def panel_general():
+    """Las acciones más operadas del panel general (fuera del panel líder), por monto promedio de 20 ruedas.
+    Guarda el monto de cada día en history/montos_ar.json y la selección en history/panel_general.json."""
+    import feriados
+    import lecaps
+    a = CFG["argentina"]
+    n_sel = a.get("panel_general_cantidad", 15)
+    lider = set(a.get("panel_lider", [])) | set(a.get("acciones", []))
+    filas = http_get("https://data912.com/live/arg_stocks", timeout=30)
+    if not isinstance(filas, list) or not filas:
+        raise RuntimeError("data912 no devolvió acciones")
+    simbolos = {r.get("symbol") for r in filas}
+    montos = read_json(HIST / "montos_ar.json", {}) or {}
+    hoy = today_ar()
+    if feriados.es_habil(hoy):
+        for r in filas:
+            t = r.get("symbol") or ""
+            # fuera del panel líder; sin las especies en dólares (YPFDD, ...)
+            if t in lider or (t[-1:] in ("D", "C") and t[:-1] in simbolos):
+                continue
+            m = (num(r.get("v")) or 0) * (num(r.get("c")) or 0)
+            montos.setdefault(t, {})[hoy.isoformat()] = m
+    corte = (hoy - timedelta(days=45)).isoformat()
+    montos = {t: {d: v for d, v in s.items() if d >= corte} for t, s in montos.items()}
+    montos = {t: s for t, s in montos.items() if s}
+    write_json(HIST / "montos_ar.json", montos)
+    prom = {t: sum(sorted(s.items())[-20:][i][1] for i in range(min(20, len(s)))) / min(20, len(s)) for t, s in montos.items()}
+    sel = [t for t, _ in sorted(prom.items(), key=lambda x: -x[1])[:n_sel] if prom[t] > 0]
+    nombres = read_json(HIST / "nombres_ar.json", {}) or {}
+    for t in sel:
+        if t not in nombres:
+            try:
+                f = lecaps.ficha_byma(t) or {}
+                n = f.get("emisor") or f.get("razonSocial") or f.get("denominacion") or f.get("descripcion")
+                # la ficha a veces trae la descripción del título ("ACCIONES ORDINARIAS ...") y no la empresa
+                if n and not re.search(r"ACCION|LETRA|BONO|CEDEAR|OBLIGACI", str(n), re.I):
+                    ws = str(n).split()
+                    nombres[t] = " ".join(w.capitalize() if (len(w) > 3 or i == 0) else w.lower() for i, w in enumerate(ws))
+            except Exception as e:  # noqa: BLE001
+                log.warning("nombre BYMA %s: %s", t, e)
+    write_json(HIST / "nombres_ar.json", nombres)
+    nombres.update(a.get("nombres_panel_general", {}))  # nombres cargados a mano, si hiciera falta
+    out = {"tickers": sel, "nombres": {t: nombres.get(t) for t in sel}, "monto_prom": {t: prom[t] for t in sel},
+           "ruedas": max((len(montos[t]) for t in sel), default=0)}
+    write_json(HIST / "panel_general.json", out)
+    return out, "data912 (monto operado), BYMA (nombres)"
 
 
 def lecaps_auto():
@@ -915,8 +1014,19 @@ def lecaps_auto():
 
 
 if __name__ == "__main__":
-    run_blocks(DATA / "daily.json", primero=("feriados",), builders={
+    run_blocks(DATA / "daily.json", primero=("feriados", "panel_general"), hilos=12, builders={
         "feriados": feriados_block,   # primero: los cálculos de días hábiles lo usan
+        # los más lentos arrancan primero, así no quedan esperando lugar
+        "panel_general": panel_general,       # elige las acciones del panel general antes de armar las fichas
+        "fichas_empresas": fichas_empresas,   # también da la capitalización de cada empresa
+        "fichas_acciones": fichas_acciones,
+        "fichas_bonos": fichas_bonos,
+        "earnings": earnings,
+        "ar_backfill": ar_backfill,
+        "calendar_ar": calendar_ar,
+        "lecaps_auto": lecaps_auto,
+        "cer_auto": cer_auto,
+        "tamar_terms": tamar_terms,
         "us_macro": us_macro,
         "fed": fed,
         "treasuries": treasuries,
@@ -927,21 +1037,12 @@ if __name__ == "__main__":
         "rem": rem,
         "bandas": bandas,
         "dolares_hist": dolares_hist,
-        "ar_backfill": ar_backfill,
         "calendar_us": calendar_us,
-        "calendar_ar": calendar_ar,
         "calendar_intl": calendar_intl,
         "us_senales": us_senales,
-        "megacaps_info": megacaps_info,
-        "earnings": earnings,
-        "lecaps_auto": lecaps_auto,
-        "cer_auto": cer_auto,
         "futuros_dolar": futuros_dolar,
         "licitaciones_resultado": licitaciones_resultado,
         "tasas_bc": tasas_bancos_centrales,
-        "fichas_bonos": fichas_bonos,
-        "fichas_empresas": fichas_empresas,
-        "fichas_acciones": fichas_acciones,
         "avisos": avisos,
     })
     log.info("daily.json actualizado %s", now_iso())

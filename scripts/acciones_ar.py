@@ -93,10 +93,14 @@ def _verificar_moneda(fund, cap, ccl):
     return fund
 
 
-def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6):
+def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6, extra=(), nombres=None):
+    """extra: acciones del panel general elegidas por monto operado (sin sector ni ADR)."""
     carpeta.mkdir(parents=True, exist_ok=True)
-    tickers = list(dict.fromkeys(cfg_ar.get("panel_lider", []) + cfg_ar.get("acciones", [])))
-    emp = cfg_ar.get("empresas", {})
+    tickers = list(dict.fromkeys(cfg_ar.get("panel_lider", []) + cfg_ar.get("acciones", []) + list(extra)))
+    emp = dict(cfg_ar.get("empresas", {}))
+    for t, n in (nombres or {}).items():
+        if t not in emp and n:
+            emp[t] = {"nombre": n, "buscar": [n.split()[0]] if len(n.split()[0]) > 3 else [n]}
     sector_de = {t: s for s, ts in cfg_ar.get("sectores", {}).items() for t in ts}
     ccl = sorted((dolares_hist or {}).get("contadoconliqui", {}).items())
     if not ccl:
@@ -174,4 +178,20 @@ def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6):
         hechas += 1
     if not hechas:
         raise RuntimeError("ninguna acción con historia")
-    return {"acciones": hechas, "sin_historia": sin, "con_adr": sorted(adrs), "ccl_hoy": ccl_hoy}
+    # controles: ratio del ADR (CCL implícito lejos del CCL) y valuaciones imposibles
+    avisos = []
+    for t in adrs:
+        try:
+            d = json.loads((carpeta / f"{t}.json").read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        k = next((i for i in range(len(d["f"]) - 1, -1, -1) if d["p"][i] and d["adr"]["p"][i] and d["ccl"][i]), None)
+        if k is not None and d["adr"].get("ratio"):
+            imp = d["p"][k] * d["adr"]["ratio"] / d["adr"]["p"][k]
+            if abs(imp / d["ccl"][k] - 1) > 0.15:
+                avisos.append((f"{t}: con el ratio {d['adr']['ratio']} su ADR da un CCL de {imp:,.0f} contra {d['ccl'][k]:,.0f}; "
+                               "revisar el ratio en config/instruments.json").replace(",", "."))
+        fu, cap = d.get("fund") or {}, (d.get("info") or {}).get("cap")
+        if cap and fu.get("patrimonio") and not 0.05 <= cap / fu["patrimonio"] <= 20:
+            avisos.append(f"{t}: precio/valor libro de {cap / fu['patrimonio']:,.1f} veces, fuera de rango (¿estados en otra moneda?)")
+    return {"acciones": hechas, "avisos": avisos, "sin_historia": sin, "con_adr": sorted(adrs), "ccl_hoy": ccl_hoy}

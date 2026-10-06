@@ -248,8 +248,21 @@ def armar(items, carpeta, finnhub_key=None, hilos=6):
                "f": fechas, "p": [round(x[1], 4) for x in filas], "v": [round(x[2]) if x[2] else None for x in filas],
                "spx": alinear(INDICE), "sec": alinear(it["sector"]) if it.get("sector") else None, **d}
         (carpeta / f"{it['id']}.json").write_text(json.dumps(doc, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+    # capitalización en miles de millones de US$ (reemplaza al bloque megacaps_info: un pedido menos por empresa)
+    a_usd = {"USD": 1.0, "SAR": 1 / 3.75}
+    caps = {}
+    for it in items:
+        i = yahoo[it["id"]].get("info") or {}
+        if i.get("cap") and (i.get("moneda") or "USD") in a_usd:
+            caps[it["id"]] = i["cap"] * a_usd[i.get("moneda") or "USD"] / 1e9
     hechas = len(items) - len(sin)
     if not hechas:
         raise RuntimeError("ninguna empresa con datos")
-    return {"empresas": hechas, "sin_datos": sin, "respaldo_finnhub": respaldo,
+    avisos = [f"Ficha de {x}: Yahoo no devolvió datos" for x in sin]
+    for it in items:
+        i = yahoo[it["id"]].get("info") or {}
+        for k, lo, hi, nom in (("pe", 0, 500, "P/E"), ("pe_fwd", 0, 300, "P/E proyectado"), ("p_libro", 0, 200, "precio/valor libro")):
+            if i.get(k) is not None and not lo < i[k] < hi:
+                avisos.append(f"{it['id']}: {nom} de {i[k]:,.1f}, fuera de rango")
+    return {"empresas": hechas, "caps": caps, "avisos": avisos, "sin_datos": sin, "respaldo_finnhub": respaldo,
             "sin_info": [it["id"] for it in items if it["id"] not in sin and not yahoo[it["id"]].get("info")]}
