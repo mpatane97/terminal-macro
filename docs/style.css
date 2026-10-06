@@ -197,3 +197,20 @@ tr.clic td:first-child { text-decoration: underline dotted color-mix(in srgb, va
 .rc4 { --c: #e08a5a; background: var(--c); } .rc5 { --c: #e5584f; background: var(--c); }
 .recom-ley span { background: none; }
 .legend span.s1 i { background: var(--accent); }
+
+/* buscador */
+.buscar { position: relative; }
+.buscar input { width: 260px; font: 13px var(--font-num); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 5px 10px; }
+.buscar input:focus { outline: none; border-color: var(--accent); }
+.buscar ul { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: 380px; max-width: 90vw; margin: 0; padding: 4px 0; list-style: none;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 4px; box-shadow: 0 6px 20px rgb(0 0 0 / .5); }
+.buscar ul[hidden] { display: none; }
+.buscar li { display: grid; grid-template-columns: 70px 1fr auto; gap: 10px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.buscar li b { font: 600 13px var(--font-num); color: var(--accent); }
+.buscar li .t { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; align-self: center; }
+.buscar li[aria-selected="true"], .buscar li:hover { background: rgb(255 255 255 / .06); }
+.buscar li.vacio { display: block; color: var(--muted); cursor: default; }
+tr.clic td:first-child::after { content: " ›"; color: var(--muted); }
+@media (max-width: 720px) { .buscar input { width: 100%; } .buscar { flex: 1 1 100%; } }
+ul.mv li.clic { cursor: pointer; } ul.mv li.clic:hover { background: rgb(255 255 255 / .04); }
+tr.clic { cursor: pointer; }

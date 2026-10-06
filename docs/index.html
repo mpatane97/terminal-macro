@@ -6,11 +6,12 @@
 <title>Terminal Macro</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <header class="top">
   <span class="brand">TERMINAL MACRO</span>
+  <div class="buscar"><input id="buscar" type="search" placeholder="Buscar: GD30, MELI, Galicia…   ( / )" autocomplete="off" spellcheck="false" aria-label="Buscar un activo"><ul id="buscar-res" role="listbox" hidden></ul></div>
   <nav class="tabs" aria-label="Secciones">
     <button data-v="resumen" aria-selected="true">Resumen</button>
     <button data-v="eeuu">EE.UU. y Fed</button>
@@ -29,6 +30,6 @@
 <main id="view" class="view"></main>
 <div class="ficha" id="ficha" hidden></div>
 <footer>Datos con demora. Fuentes y hora de cada bloque en su encabezado; un punto amarillo indica que la fuente no respondió y se muestra el último dato válido. Uso personal, no es asesoramiento financiero.</footer>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>
