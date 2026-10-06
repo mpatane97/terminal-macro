@@ -54,9 +54,9 @@ def pago_final(tem, emision, vto):
 
 # ---------- BYMA ----------
 
-def ficha_byma(symbol):
+def ficha_byma(symbol, intentos=3):
     verify = True
-    for intento in range(3):
+    for intento in range(intentos):
         try:
             r = requests.post(BYMA, json={"symbol": symbol, "Content-Type": "application/json"},
                               headers={**UA, "Content-Type": "application/json"}, timeout=15, verify=verify)
@@ -66,10 +66,11 @@ def ficha_byma(symbol):
         except requests.exceptions.SSLError:
             verify = False
         except Exception as e:  # noqa: BLE001
-            if intento == 2:
+            if intento == intentos - 1:
                 raise
             log.warning("ficha BYMA %s: %s", symbol, e)
-        time.sleep(2 * (intento + 1))
+        if intento < intentos - 1:
+            time.sleep(2 * (intento + 1))
     return None
 
 

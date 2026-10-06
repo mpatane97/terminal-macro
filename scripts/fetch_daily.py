@@ -971,7 +971,7 @@ def panel_general():
         for r in filas:
             t = r.get("symbol") or ""
             # fuera del panel líder; sin las especies en dólares (YPFDD, ...)
-            if t in lider or (t[-1:] in ("D", "C") and t[:-1] in simbolos):
+            if t in lider or "." in t or (t[-1:] in ("D", "C") and t[:-1] in simbolos):
                 continue
             m = (num(r.get("v")) or 0) * (num(r.get("c")) or 0)
             montos.setdefault(t, {})[hoy.isoformat()] = m
@@ -982,20 +982,26 @@ def panel_general():
     prom = {t: sum(sorted(s.items())[-20:][i][1] for i in range(min(20, len(s)))) / min(20, len(s)) for t, s in montos.items()}
     sel = [t for t, _ in sorted(prom.items(), key=lambda x: -x[1])[:n_sel] if prom[t] > 0]
     nombres = read_json(HIST / "nombres_ar.json", {}) or {}
-    for t in sel:
-        if t not in nombres:
-            try:
-                f = lecaps.ficha_byma(t) or {}
-                n = f.get("emisor") or f.get("razonSocial") or f.get("denominacion") or f.get("descripcion")
-                # la ficha a veces trae la descripción del título ("ACCIONES ORDINARIAS ...") y no la empresa
-                if n and not re.search(r"ACCION|LETRA|BONO|CEDEAR|OBLIGACI", str(n), re.I):
-                    ws = str(n).split()
-                    nombres[t] = " ".join(w.capitalize() if (len(w) > 3 or i == 0) else w.lower() for i, w in enumerate(ws))
-            except Exception as e:  # noqa: BLE001
-                log.warning("nombre BYMA %s: %s", t, e)
+    def nombre(t):  # ficha de BYMA; si no trae un nombre útil se guarda vacío y no se vuelve a pedir
+        try:
+            f = lecaps.ficha_byma(t, intentos=2) or {}
+        except Exception as e:  # noqa: BLE001
+            log.warning("nombre BYMA %s: %s", t, e)
+            return t, None
+        n = f.get("emisor") or f.get("razonSocial") or f.get("denominacion") or f.get("descripcion")
+        # la ficha a veces trae la descripción del título ("ACCIONES ORDINARIAS ...") y no la empresa
+        if not n or re.search(r"ACCION|LETRA|BONO|CEDEAR|OBLIGACI", str(n), re.I):
+            return t, ""
+        ws = str(n).split()
+        return t, " ".join(w.upper() if "." in w else w.capitalize() if (len(w) > 3 or i == 0) else w.lower() for i, w in enumerate(ws))
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(6) as ex:
+        for t, n in ex.map(nombre, [t for t in sel if t not in nombres]):
+            if n is not None:
+                nombres[t] = n
     write_json(HIST / "nombres_ar.json", nombres)
     nombres.update(a.get("nombres_panel_general", {}))  # nombres cargados a mano, si hiciera falta
-    out = {"tickers": sel, "nombres": {t: nombres.get(t) for t in sel}, "monto_prom": {t: prom[t] for t in sel},
+    out = {"tickers": sel, "nombres": {t: nombres.get(t) or None for t in sel}, "monto_prom": {t: prom[t] for t in sel},
            "ruedas": max((len(montos[t]) for t in sel), default=0)}
     write_json(HIST / "panel_general.json", out)
     return out, "data912 (monto operado), BYMA (nombres)"
@@ -1014,10 +1020,10 @@ def lecaps_auto():
 
 
 if __name__ == "__main__":
-    run_blocks(DATA / "daily.json", primero=("feriados", "panel_general"), hilos=12, builders={
+    run_blocks(DATA / "daily.json", primero=("feriados",), hilos=12, builders={
         "feriados": feriados_block,   # primero: los cálculos de días hábiles lo usan
         # los más lentos arrancan primero, así no quedan esperando lugar
-        "panel_general": panel_general,       # elige las acciones del panel general antes de armar las fichas
+        "panel_general": panel_general,       # la ficha de estas acciones se arma con la lista del día anterior
         "fichas_empresas": fichas_empresas,   # también da la capitalización de cada empresa
         "fichas_acciones": fichas_acciones,
         "fichas_bonos": fichas_bonos,
