@@ -655,7 +655,10 @@
     ],
     "tamar": [
       "TMF27",
-      "TML27"
+      "TML27",
+      "TMG27",
+      "TMF28",
+      "TMG28"
     ],
     "sectores": {
       "Bancos y financieras": [
@@ -850,7 +853,16 @@
           "YPF"
         ]
       }
-    }
+    },
+    "_tamar_nota": "Margen (en puntos porcentuales anuales) sobre la TAMAR de cada bono, fijado en su licitación de origen. Fuente: resultados de licitación de la Secretaría de Finanzas. Los bonos TAMAR nuevos aparecen solos; si falta su margen, el aviso rojo lo indica.",
+    "tamar_margenes": {
+      "TMF27": 6.5,
+      "TML27": 5.4,
+      "TMG27": 6.0,
+      "TMF28": 6.5,
+      "TMG28": 6.9
+    },
+    "panel_general_cantidad": 15
   },
   "earnings_top20": [
     "NVDA",
