@@ -822,14 +822,12 @@ def _tickers_d912():
         if "t" not in _cache912:
             t = []
             for path in ("/live/arg_notes", "/live/arg_bonds"):
-                for intento in range(2):
+                for intento in range(1):  # un solo intento corto: si data912 anda lenta, BYMA da la misma lista
                     try:
-                        t += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=20, retries=0) if r.get("symbol")]
+                        t += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=10, retries=0) if r.get("symbol")]
                         break
                     except Exception as e:  # noqa: BLE001
-                        log.warning("data912 %s (intento %s): %s", path, intento + 1, e)
-                        if intento == 0:
-                            time.sleep(3)
+                        log.warning("data912 %s: %s", path, e)
                 else:  # data912 caído: la misma lista desde los paneles públicos de BYMA
                     try:
                         from fetch_prices import _desde_byma
