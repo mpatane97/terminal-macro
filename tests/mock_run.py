@@ -127,9 +127,9 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
         return [{"symbol": t, "c": pr, "pct_change": round(random.uniform(-0.3, 0.3), 2)}
                 for t, pr in {"S16O6": 104.38, "S30O6": 133.15, "S13N6": 106.77, "S30N6": 125.19, "S29E7": 103.15, "T30A7": 135.45, "T31Y7": 127.34}.items()]
     if "data912.com/live/arg_stocks" in url:
-        return [{"symbol": t, "c": round(random.uniform(500, 9000), 1), "pct_change": round(random.uniform(-3, 3), 2)} for t in
+        return [{"symbol": t, "c": round(random.uniform(500, 9000), 1), "pct_change": round(random.uniform(-3, 3), 2), "v": random.randint(1000, 900000)} for t in
                 ["ALUA", "BBAR", "BMA", "BYMA", "CEPU", "COME", "CRES", "EDN", "GGAL", "IRSA", "LOMA", "METR", "PAMP", "SUPV", "TECO2",
-                 "TGNO4", "TGSU2", "TRAN", "TXAR", "VALO", "YPFD"]]
+                 "TGNO4", "TGSU2", "TRAN", "TXAR", "VALO", "YPFD", "MORI", "BHIP", "LONG", "AGRO", "YPFDD"]]
     if "data912.com/live/arg_cedears" in url:
         return [{"symbol": t, "c": p, "pct_change": round(random.uniform(-2, 2), 2)} for t, p in {"SPY": 46800, "GOOGL": 9200, "NU": 16100, "NVDA": 10900, "MELI": 24500, "KO": 18900}.items()]
     if "data912.com/live/mep" in url:
@@ -173,7 +173,7 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
         return {"results": [{"idVariable": k, "descripcion": desc.get(k, f"Variable {k}"), "ultValorInformado": v, "ultFechaInformada": "2026-09-29"} for k, v in vals.items()]}
     if "bcra.gob.ar/estadisticas" in url:
         idv = int(url.rsplit("/", 1)[1])
-        lvl = {1: 47482, 5: 1522, 78: 100, 30: 841.6}.get(idv, 10)
+        lvl = {1: 47482, 5: 1522, 78: 100, 30: 841.6, 44: 25.0}.get(idv, 10)
         if idv == 30:
             return {"results": [{"idVariable": 30, "detalle": [{"fecha": (TODAY - timedelta(days=k)).isoformat(), "valor": 847.76 - 0.42 * k} for k in range(420)]}]}
         return {"results": [{"idVariable": idv, "detalle": [{"fecha": d, "valor": v} for d, v in series(380, lvl, lvl * 0.004)]}]}
@@ -259,6 +259,11 @@ class _Resp:
     def raise_for_status(self): pass
     def json(self): return self._js
 def fake_post(url, json=None, **kw):
+    sym = (json or {}).get("symbol", "")
+    vtos = {"TMF27": "2027-02-26", "TML27": "2027-07-30", "TMG27": "2027-08-31", "TMF28": "2028-02-25", "TMG28": "2028-08-31"}
+    if sym in vtos:
+        return _Resp({"data": [{"denominacion": "BONO DEL TESORO NACIONAL EN PESOS A TASA TAMAR", "moneda": "Pesos",
+                                "fechaEmision": "2026-02-13", "fechaVencimiento": vtos[sym]}]})
     # ficha simulada: TEM 2,30% emitida el 15/12/2025 (alcanza para probar el flujo)
     return _Resp({"data": [{"denominacion": "LETRA DEL TESORO NACIONAL CAPITALIZABLE EN PESOS", "moneda": "Pesos",
                             "interes": "Tasa efectiva mensual: 2,30 %", "fechaEmision": "2025-12-15", "fechaVencimiento": None}]})
@@ -302,7 +307,7 @@ common.today_ar = lambda: TODAY
 
 OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
-    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales"]})
+    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general"]})
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 import fichas  # noqa: E402
 fichas.http_get = fake_get
