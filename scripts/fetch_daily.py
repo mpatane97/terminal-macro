@@ -339,8 +339,13 @@ def dolares_hist():
 
 
 def ar_backfill():
-    """Completa historia de precios de bonos, acciones y CEDEARs desde data912 si todavía es corta."""
+    """Completa la historia de precios de bonos, acciones y CEDEARs si todavía es corta.
+    Fuente: serie histórica de BYMA (rápida, una por papel, en paralelo); respaldo: histórico de data912.
+    Un papel sin historia en ninguna de las dos no se vuelve a pedir hasta dentro de 7 días."""
+    import fichas
+    from concurrent.futures import ThreadPoolExecutor
     hist = read_json(HIST / "ar_closes.json", {}) or {}
+    sin = read_json(HIST / "backfill_sin_datos.json", {}) or {}
     a = CFG["argentina"]
     def usd(t):
         m = re.fullmatch(r"BPO([A-D]\d)", t)
@@ -349,25 +354,45 @@ def ar_backfill():
     acciones = list(dict.fromkeys(a["acciones"] + a.get("panel_lider", []) + pg))
     pedidos = [("bonds", usd(t)) for t in a["soberanos_usd"] + a["bopreal"]] + \
               [("stocks", t) for t in acciones] + [("cedears", t) for t in a["cedears"]]
-    hechos, errores = 0, {}
-    cutoff = (today_ar() - timedelta(days=400)).isoformat()
-    for kind, t in pedidos:
-        if len(hist.get(t, {})) >= 200:
-            continue
+    hoy = today_ar()
+    cutoff = (hoy - timedelta(days=400)).isoformat()
+    faltan = [(k, t) for k, t in pedidos if len(hist.get(t, {})) < 200 and sin.get(t, "") < (hoy - timedelta(days=7)).isoformat()]
+
+    def byma(t):
         try:
-            rows = http_get(f"https://data912.com/historical/{kind}/{t}", timeout=30)
-            if not isinstance(rows, list):
-                raise RuntimeError(f"respuesta inesperada: {str(rows)[:100]}")
-            for r in rows:
-                d = str(r.get("date", ""))[:10]
-                if d >= cutoff and num(r.get("c")):
-                    hist.setdefault(t, {}).setdefault(d, num(r["c"]))
-            hechos += 1
+            filas = fichas.historia_byma(t, dias=400)
+            return {d: c for d, c, _ in filas} if len(filas) >= 20 else None
         except Exception as e:  # noqa: BLE001
-            log.warning("historia %s: %s", t, e)
-            errores[t] = str(e)[:120]
+            log.warning("historia BYMA %s: %s", t, e)
+            return None
+
+    def d912(kind, t):
+        try:
+            rows = http_get(f"https://data912.com/historical/{kind}/{t}", timeout=20, retries=0)
+            return {str(r.get("date", ""))[:10]: num(r["c"]) for r in rows if num(r.get("c"))} if isinstance(rows, list) else None
+        except Exception as e:  # noqa: BLE001
+            log.warning("historia data912 %s: %s", t, e)
+            return None
+
+    def uno(kt):
+        kind, t = kt
+        # bonos: primero data912 (BYMA ajusta los precios viejos por los pagos de cupón y amortización)
+        serie = (d912(kind, t) or byma(t)) if kind == "bonds" else (byma(t) or d912(kind, t))
+        return t, serie, None if serie else "sin historia en BYMA ni en data912"
+    hechos, errores = 0, {}
+    with ThreadPoolExecutor(6) as ex:
+        for t, serie, err in ex.map(uno, faltan):
+            if serie:
+                for d, c in serie.items():
+                    if d >= cutoff:
+                        hist.setdefault(t, {}).setdefault(d, c)
+                hechos += 1
+            else:
+                errores[t] = err or "sin datos"
+                sin[t] = hoy.isoformat()
     write_json(HIST / "ar_closes.json", hist)
-    return {"completados": hechos, "errores": errores}, "data912.com (histórico)"
+    write_json(HIST / "backfill_sin_datos.json", sin)
+    return {"completados": hechos, "errores": errores, "pendientes": len(faltan)}, "BYMA (serie histórica); respaldo: data912"
 
 
 def emae():
@@ -797,13 +822,20 @@ def _tickers_d912():
         if "t" not in _cache912:
             t = []
             for path in ("/live/arg_notes", "/live/arg_bonds"):
-                for intento in range(3):
+                for intento in range(2):
                     try:
-                        t += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=30) if r.get("symbol")]
+                        t += [r.get("symbol") for r in http_get(f"https://data912.com{path}", timeout=20, retries=0) if r.get("symbol")]
                         break
                     except Exception as e:  # noqa: BLE001
                         log.warning("data912 %s (intento %s): %s", path, intento + 1, e)
-                        time.sleep(5 * (intento + 1))
+                        if intento == 0:
+                            time.sleep(3)
+                else:  # data912 caído: la misma lista desde los paneles públicos de BYMA
+                    try:
+                        from fetch_prices import _desde_byma
+                        t += [r.get("symbol") for r in _desde_byma(path) if r.get("symbol")]
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("BYMA en lugar de data912 %s: %s", path, e)
             _cache912["t"] = t
         return list(_cache912["t"])
 
