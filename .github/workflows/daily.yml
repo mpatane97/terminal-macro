@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   actualizar:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # fijo: "latest" pasa a Ubuntu 26 el 19/10/2026; se cambia a propósito, no solo
     timeout-minutes: 20
     env:
       DATA_DIR: _datos
