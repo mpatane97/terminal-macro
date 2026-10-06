@@ -1008,7 +1008,11 @@
     }
     if (horasHabiles(P.generated) > 48) out.unshift(`La actualización de precios no corre desde ${hhmm(P.generated)}`);
     if (horasHabiles(D.generated) > 48) out.unshift(`La actualización diaria no corre desde ${hhmm(D.generated)}`);
-    for (const a of blk(D, "avisos") || []) out.push(a);
+    return out;
+  }
+  // condiciones que hay que revisar o cargar (no son datos viejos): calendario que se acaba, ratio de un ADR, margen TAMAR faltante
+  function revisar() {
+    const out = [...(blk(D, "avisos") || [])];
     for (const a of (blk(D, "tamar_terms") || {}).faltan || []) out.push(`Bonos TAMAR · ${a}`);
     for (const k of ["fichas_acciones", "fichas_empresas", "fichas_bonos"]) for (const a of (blk(D, k) || {}).avisos || []) out.push(a);
     return out;
@@ -1062,7 +1066,7 @@
     catch (e) { $("#view").innerHTML = `<div class="empty">Error al dibujar la pestaña: ${esc(e.message)}</div>`; console.error(e); }
     document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.v === current));
     const stale = [...Object.entries(P), ...Object.entries(D)].filter(([k, v]) => v && v.stale).map(([k]) => NOMBRES[k] || k);
-    const prob = [...problemas(), ...sospechosos()];
+    const prob = [...problemas(), ...revisar(), ...sospechosos()];
     $("#status").innerHTML = `<span>Precios ${hhmm(P.generated)}</span><span>Diario ${hhmm(D.generated)}</span>`
       + (prob.length ? `<button class="alerta" title="${esc(prob.join("\n"))}" aria-label="Datos a revisar">! ${prob.length === 1 ? "1 dato a revisar" : `${prob.length} datos a revisar`}</button>`
         : stale.length ? `<span class="bad" title="${esc(stale.join(", "))}">${stale.length} fuente(s) sin responder en la última corrida</span>` : "");
@@ -1108,8 +1112,9 @@
     const b = e.target.closest(".alerta"); if (!b) return;
     const box = $("#alertas");
     if (box.hidden) {
-      const viejos = problemas(), raros = sospechosos();
+      const viejos = problemas(), rev = revisar(), raros = sospechosos();
       box.innerHTML = (viejos.length ? `<b>Desactualizados hace más de 2 días hábiles</b><ul>${viejos.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
+        + (rev.length ? `<b>Para revisar o completar</b><ul>${rev.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
         + (raros.length ? `<b>Valores que no tienen sentido</b><ul>${raros.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
         + `<div class="note">Se siguen mostrando los últimos datos. Los desactualizados desaparecen cuando la fuente vuelve a responder; los valores raros pueden ser un error de la fuente o un movimiento real fuerte: conviene chequearlos antes de usarlos.</div>`;
       box.hidden = false;
