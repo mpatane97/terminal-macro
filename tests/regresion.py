@@ -17,6 +17,8 @@ import bonds  # noqa: E402
 import feriados  # noqa: E402
 import fichas  # noqa: E402
 import acciones_ar  # noqa: E402
+import tamar  # noqa: E402
+from common import contexto  # noqa: E402
 import indec  # noqa: E402
 import lecaps  # noqa: E402
 
@@ -58,6 +60,14 @@ chequear("Estados de YPF detectados en dólares", f["moneda"], "USD")
 chequear("YPF precio/valor libro corregido", round(19.47e9 / f["patrimonio"], 2), 2.53, 0.01)
 g = acciones_ar._verificar_moneda({"patrimonio": 9.2e12 / 1623.8, "moneda": "ARS"}, 6.08e9, 1623.8)
 chequear("Estados de Galicia siguen en pesos", g["moneda"], "ARS")
+
+# bonos TAMAR: TEM = [(1 + (TAMAR + margen) × 32/365)^(365/32)]^(1/12) − 1 (condiciones de Finanzas)
+chequear("TAMAR TEM con TAMAR 24,56% + margen 6,5", round(tamar.tem(24.56, 6.5) * 100, 3), 2.587, 0.001)
+chequear("Días 30/360 del TMF27 (13/02/26 a 26/02/27)", tamar.dias_30_360(date(2026, 2, 13), date(2027, 2, 26)), 373)
+# contexto histórico: percentil y cambio del mes
+cx = contexto([(f"2026-{m:02d}-01", float(m)) for m in range(1, 11)])
+chequear("Contexto: último valor en el máximo del año → percentil 100", cx["pctl12"], 100.0, 1e-9)
+chequear("Contexto: cambio del mes", cx["d_mes"], 1.0, 1e-9)
 
 s4 = BONOS["familias"].get("BOPREAL_S4")
 chequear("BOPREAL Serie 4 cargado", bool(s4), True)
