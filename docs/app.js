@@ -286,13 +286,22 @@
     const sube = v[v.length - 1] > v[0], malo = inv ? sube : !sube;
     return `<svg class="spark ${malo ? "down" : "up"}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><polyline fill="none" stroke-width="1.4" points="${v.map((x, i) => `${X(i).toFixed(1)},${Y(x).toFixed(1)}`).join(" ")}"/></svg>`;
   }
-  // caro o barato contra la curva: rendimiento del papel menos el de la curva ajustada a su plazo (pb).
+  // caro o barato contra la curva: rendimiento del papel menos el que marcan sus vecinos de plazo (pb).
+  // Para cada papel se ajusta una recta (en logaritmo del plazo) con los 4 papeles más cercanos que operaron,
+  // sin contarlo a él: así un papel raro no deforma su propia referencia y la forma de la curva no importa.
   // Positivo: rinde más que sus vecinos (relativamente barato). Negativo: rinde menos (relativamente caro).
-  function vsCurva(rows, xk, yk) {
-    const ps = rows.filter((r) => r[xk] != null && r[yk] != null && r[xk] > 0).map((r) => ({ x: r[xk], y: r[yk], sinop: r.opero === false, t: r.ticker })).sort((a, b) => a.x - b.x);
-    const aj = ajusteLog(ps), out = {};
-    if (!aj || ps.filter((p) => !p.sinop).length < 4) return out;
-    for (const p of ps) out[p.t] = (p.y - aj.f(p.x)) * 100;
+  // Papeles a menos de un mes del vencimiento quedan afuera: su TIR salta mucho con cualquier cambio de precio.
+  function vsCurva(rows, xk, yk, minX) {
+    const ps = rows.filter((r) => r[xk] != null && r[yk] != null && r[xk] > 0).map((r) => ({ x: Math.log(r[xk]), raw: r[xk], y: r[yk], ok: r.opero !== false, t: r.ticker }));
+    const out = {};
+    for (const p of ps) {
+      if (p.raw < minX) continue;
+      const vec = ps.filter((q) => q !== p && q.ok && q.raw >= minX).sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x)).slice(0, 4);
+      if (vec.length < 3) continue;
+      const mx = vec.reduce((s, q) => s + q.x, 0) / vec.length, my = vec.reduce((s, q) => s + q.y, 0) / vec.length;
+      const sxx = vec.reduce((s, q) => s + (q.x - mx) ** 2, 0), b = sxx ? vec.reduce((s, q) => s + (q.x - mx) * (q.y - my), 0) / sxx : 0;
+      out[p.t] = (p.y - (my + b * (p.x - mx))) * 100;
+    }
     return out;
   }
   const vcCell = (v) => (v == null ? `<span class="na">—</span>` : `<span class="${Math.abs(v) < 5 ? "flat" : v > 0 ? "up" : "down"}">${v > 0 ? "+" : ""}${fmt(v, 0)}</span>`);
@@ -376,7 +385,7 @@
     const arm = blk(P, "ar_market") || {}, sob = arm.soberanos || [], bop = arm.bopreal || [];
     const byMd = (a) => [...a].sort((x, y) => (x.dur_mod ?? 99) - (y.dur_mod ?? 99));
     const ny = byMd(sob.filter((r) => r.ley === "NY")), ar = byMd(sob.filter((r) => r.ley === "Local"));
-    for (const g of [ny, ar]) { const v = vsCurva(g, "dur_mod", "tir"); for (const r of g) r._vc = v[r.ticker]; }
+    for (const g of [ny, ar]) { const v = vsCurva(g, "dur_mod", "tir", 0.08); for (const r of g) r._vc = v[r.ticker]; }
     const m = meta(P, "ar_market");
     const tablas = panel("Bonos USD · Ley Nueva York", table(BH, ny.map(bRow)), { lead: true, meta: m })
       + panel("Bonos USD · Ley Argentina", table(BH, ar.map(bRow)), { meta: m });
@@ -384,7 +393,7 @@
         { name: "Ley Nueva York", cls: "s1", fit: true, points: ny.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) },
         { name: "Ley Argentina", cls: "s2", fit: true, points: ar.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR %", title: "Curva de bonos en dólares" })
-      + `<div class="note">Precio por 100 VN en dólares MEP, liquidación ${dmy(arm.liquidacion)}. Línea: ajuste logarítmico de cada curva. "vs curva": cuántos pb rinde por encima (verde, relativamente barato) o por debajo (rojo, caro) de la curva de su misma ley. Próx. pago: días y monto por 100 VN.</div>`, { src: "" });
+      + `<div class="note">Precio por 100 VN en dólares MEP, liquidación ${dmy(arm.liquidacion)}. Línea: ajuste logarítmico de cada curva. "vs curva": cuántos pb rinde por encima (verde, relativamente barato) o por debajo (rojo, caro) de lo que marcan sus 4 vecinos de duration de la misma ley; con menos de un mes al vencimiento no se calcula. Próx. pago: días y monto por 100 VN.</div>`, { src: "" });
     return `${rueda()}<div class="cols-split"><div class="view">${tablas}</div><div class="sticky">${grafico}</div></div>
       ${panel("BOPREAL", table(BH, bop.map(bRow)) + `<div class="note">Serie 1 (A a D): vencimiento 31/10/27. Serie 2028 (A8, B8): sin flujos cargados, se muestra solo el precio.</div>`, { meta: m })}`;
   }
@@ -397,14 +406,14 @@
     const ref = `<div class="strip">${[["TAMAR", bc.tamar], ["BADLAR", bc.badlar], ["Plazo fijo 30 d", bc.plazo_fijo]].map(([n, v]) => `<span><b>${n}</b> ${v ? pct(v.valor) : "—"} TNA</span>`).join("")}
       ${(blk(P, "cauciones") || []).map((c) => `<span><b>Caución ${c.plazo} d</b> ${pct(c.tna)} TNA</span>`).join("")}
       <span><b>CER</b> ${fmt(bc.cer?.valor, 2)}</span><span><b>UVA</b> ${fmt(bc.uva?.valor, 2)}</span></div>`;
-    const vcF = vsCurva(pf, "dias", "tem"), vcC = vsCurva(cer, "dur_mod", "tir");
+    const vcF = vsCurva(pf, "dias", "tem", 30), vcC = vsCurva(cer, "dur_mod", "tir", 0.08);
     const fija = panel("Tasa fija · LECAP y BONCAP", table(["Ticker", "Tipo", "Vto.", "Días", "Precio", "Dif", "Pago final", "TEM", `<span title="TEM de la letra menos la de la curva ajustada a su plazo, en pb de TEM. Positivo: rinde más que sus vecinos (barata)">vs curva</span>`, "TNA", "TIREA"],
         pf.map((r) => fila(r, [tk(r), r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), vcCell(vcF[r.ticker]), pct(r.tna, 1), pct(r.tirea, 1)])))
       + (() => { const la = blk(D, "lecaps_auto") || {}, sinPago = pf.filter((r) => r.pago_final == null).map((r) => r.ticker);
-          return `<div class="note">"vs curva": pb de TEM por encima (verde, relativamente barata) o por debajo (roja, cara) de la curva ajustada. Las letras nuevas se suman solas: el pago final se calcula con la TEM y la fecha de emisión de la ficha de BYMA (o del resultado de licitación de Finanzas).${(la.automaticas || []).length ? ` Calculadas automáticamente: ${esc(la.automaticas.join(", "))}.` : ""}${sinPago.length ? ` Todavía sin condiciones publicadas: ${esc(sinPago.join(", "))} (se reintenta cada día).` : ""}</div>`; })(), { lead: true, meta: m });
+          return `<div class="note">"vs curva": pb de TEM por encima (verde, relativamente barata) o por debajo (roja, cara) de lo que marcan sus 4 vecinos de plazo; con menos de 30 días no se calcula. Las letras nuevas se suman solas: el pago final se calcula con la TEM y la fecha de emisión de la ficha de BYMA (o del resultado de licitación de Finanzas).${(la.automaticas || []).length ? ` Calculadas automáticamente: ${esc(la.automaticas.join(", "))}.` : ""}${sinPago.length ? ` Todavía sin condiciones publicadas: ${esc(sinPago.join(", "))} (se reintenta cada día).` : ""}</div>`; })(), { lead: true, meta: m });
     const cerT = panel("Bonos CER", table(["Ticker", "Vto.", "Días", "Precio", "Dif", "TIR real", "vs curva", "MD"],
         cer.map((r) => fila(r, [tk(r) + (r.auto ? `<span class="sub" title="Dado de alta automáticamente con la ficha de BYMA">auto</span>` : ""), dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), vcCell(vcC[r.ticker]), fmt(r.dur_mod, 2)])))
-      + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono. "vs curva": pb de TIR por encima (verde, barato) o por debajo (rojo, caro) de la curva CER ajustada.</div>`, { meta: m });
+      + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono. "vs curva": pb de TIR por encima (verde, barato) o por debajo (rojo, caro) de lo que marcan sus 4 vecinos de duration. Los CER con cupón y amortización (TX) suelen rendir distinto a los cero cupón por su estructura, no necesariamente por estar baratos.</div>`, { meta: m });
     const cerCurva = panel("Curva CER", curve([{ name: "TIR real", cls: "s2", fit: true, points: cer.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR real %", title: "Curva CER" }), { src: "" });
     // inflación implícita vs REM (promedio de las medianas mensuales disponibles hasta el vencimiento)
