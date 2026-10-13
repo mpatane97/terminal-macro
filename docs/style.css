@@ -224,3 +224,12 @@ ul.mv li > span:last-child { white-space: nowrap; }
 .sesgo ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.45; }
 @media (max-width: 720px) { .sesgo { grid-template-columns: 1fr; } }
 .balance { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 12px 4px; font-size: 13px; }
+.franja { padding: 6px 12px 4px; }
+.kgrupo h3 { padding: 6px 0 4px !important; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.kpi { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; font-variant-numeric: tabular-nums; }
+.kpi .n { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.kpi b { font: 600 15px var(--font-num); }
+.kpi > span:last-child { font: 12px var(--font-num); }
+.scroll.larga { max-height: 72vh; overflow: auto; }
+.scroll.larga thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); }

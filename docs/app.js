@@ -26,14 +26,15 @@
   const tk = (r) => `${esc(r.ticker)}${r.opero === false ? `<span class="sinop-tag" title="No operó en la rueda de hoy: el precio es el último conocido">s/op</span>` : ""}`;
   const fila = (r, celdas) => { if (r.opero === false) celdas.cls = "sinop"; if (r.flujos || r.cond || r.tipo === "TAMAR" || r.tipo === "Dólar linked") { celdas.tk = r.ticker; celdas.cls = `${celdas.cls || ""} clic`.trim(); } return celdas; };
   const table = (head, rows, left = []) => rows.length
-    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}${r.emp ? ` data-emp="${esc(r.emp)}" title="Ver ficha"` : ""}${r.acc ? ` data-acc="${esc(r.acc)}" title="Ver ficha"` : ""}${r.ind ? ` data-ind="${esc(r.ind)}" title="Ver interpretación"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+    ? `<div class="scroll${rows.length > 15 ? " larga" : ""}"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}${r.emp ? ` data-emp="${esc(r.emp)}" title="Ver ficha"` : ""}${r.acc ? ` data-acc="${esc(r.acc)}" title="Ver ficha"` : ""}${r.ind ? ` data-ind="${esc(r.ind)}" title="Ver interpretación"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">Sin datos todavía.</div>`;
   const byId = (arr, id) => (arr || []).find((x) => x.id === id) || {};
 
   // filas de precio: nombre, último, variaciones elegidas
-  const priceRows = (items, cols) => (items || []).map((i) => [
+  // inv: subir es mala señal (volatilidad), la suba va en rojo
+  const priceRows = (items, cols, inv) => (items || []).map((i) => [
     `${esc(i.nombre)}${i.unidad ? `<span class="sub">${esc(i.unidad)}</span>` : ""}`,
-    fmt(i.last, dec(i.last)), ...cols.map((c) => chg(i[c])),
+    fmt(i.last, dec(i.last)), ...cols.map((c) => (inv ? chgInv : chg)(i[c])),
   ]);
   const VARS = { d: "Día", w: "Sem", m: "Mes", y: "Año" };
 
@@ -86,7 +87,7 @@
       const ps = s.points.filter((p) => p.x != null && p.y != null).sort((a, b) => a.x - b.x);
       if (s.fit) {
         const aj = ajusteLog(ps);
-        if (aj) g += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${Array.from({ length: 40 }, (_, k) => { const x = aj.xa + (aj.xb - aj.xa) * k / 39; return `${X(x)},${Y(aj.f(x))}`; }).join(" ")}"/>`;
+        if (aj) g += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1.4 : 2}" stroke-opacity="${s.ghost ? 0.8 : 0.55}" ${s.ghost ? 'stroke-dasharray="5 4"' : ""} points="${Array.from({ length: 40 }, (_, k) => { const x = aj.xa + (aj.xb - aj.xa) * k / 39; return `${X(x)},${Y(aj.f(x))}`; }).join(" ")}"/>`;
       }
       if (s.line && ps.length > 1) g += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1 : 2}" ${s.ghost ? 'stroke-dasharray="4 4"' : ""} points="${ps.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}"/>`;
       if (!s.nodots) g += ps.map((p) => punto(s.cls, X(p.x), Y(p.y), s.ghost ? 2.5 : 3.5, p.sinop, `${p.label || ""} ${fmt(p.y, o.tdec ?? 2)}${o.ysuf ?? "%"}`)).join("");
@@ -94,7 +95,7 @@
     });
     const pon = etiquetador(W - 2);
     g += etiquetas.sort((a, b) => a[0] - b[0]).map(([x, y, t]) => pon(x, y, t)).join("");
-    const leg = series.length > 1 ? `<div class="legend">${series.map((s) => `<span><i class="${s.cls}" style="background:currentColor"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
+    const leg = series.filter((s) => s.name).length > 1 ? `<div class="legend">${series.filter((s) => s.name).map((s) => `<span><i class="${s.cls}" style="background:currentColor"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
     return `${leg}<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || "curva")}">${g}</svg></div>`;
   }
   function niceTicks(a, b, n) {
@@ -126,7 +127,7 @@
       let h = "";
       if (s.fit) {
         const aj = ajusteLog(ps);
-        if (aj) h += `<polyline class="${s.cls}" fill="none" stroke-width="2" stroke-opacity="0.55" points="${Array.from({ length: 40 }, (_, k) => { const x = aj.xa + (aj.xb - aj.xa) * k / 39; return `${X(x)},${Y(aj.f(x))}`; }).join(" ")}"/>`;
+        if (aj) h += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1.4 : 2}" stroke-opacity="${s.ghost ? 0.8 : 0.55}" ${s.ghost ? 'stroke-dasharray="5 4"' : ""} points="${Array.from({ length: 40 }, (_, k) => { const x = aj.xa + (aj.xb - aj.xa) * k / 39; return `${X(x)},${Y(aj.f(x))}`; }).join(" ")}"/>`;
       }
       if (s.line && ps.length > 1) h += `<polyline class="${s.cls}" fill="none" stroke-width="${s.ghost ? 1 : 2}" ${s.ghost ? 'stroke-dasharray="4 4"' : ""} points="${ps.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}"/>`;
       if (!s.nodots) h += ps.map((p) => punto(s.cls, X(p.x), Y(p.y), s.small ? 2.5 : 3.5, p.sinop, `${p.label || ""} ${fmt(p.y, dec)}${suf}`)).join("");
@@ -492,29 +493,25 @@
     const macro = blk(D, "us_macro") || [];
     const cpi = macro.find((r) => r.id === "CPIAUCSL") || {}, un = macro.find((r) => r.id === "UNRATE") || {};
 
-    const us = table(head, priceRows(pick(["SPX", "NDX", "DJI", "ES", "NQ", "YM", "VIX"]), cols))
-      + `<h3>Tasas y Fed</h3>` + table(["", "Tasa", "Día", "Mes"], tsy.filter((r) => ["2y", "5y", "10y"].includes(r.plazo)).map((r) => [`Treasury ${r.plazo}`, fmt(r.tasa, 2) + "%", chg(r.d_pb, 0, " pb"), chg(r.m_pb, 0, " pb")]))
-      + `<dl class="kv"><dt>Fed funds</dt><dd>${fed.rango ? `${fmt(fed.rango[0], 2)}–${fmt(fed.rango[1], 2)}%` : "—"}</dd>
-         <dt>Próximo FOMC</dt><dd>${dmy((fed.proximo_fomc || [])[0])}</dd>
-         ${fo ? `<dt>Recorte / mantener / suba</dt><dd>${fmt(fo.cut, 0)} / ${fmt(fo.hold, 0)} / ${fmt(fo.hike, 0)}%</dd>` : ""}
-         <dt>CPI (${esc(cpi.periodo || "—")})</dt><dd>${fmt(cpi.valor, 1)}% i.a.</dd>
-         <dt>Desempleo (${esc(un.periodo || "—")})</dt><dd>${fmt(un.valor, 1)}%</dd></dl>`;
+    // franja de precios clave: valor y variación del día (el contexto de 12 meses está en el tablero de arriba)
+    const dol = blk(P, "dolares") || {}, cot = dol.cotizaciones || [];
+    const arm = blk(P, "ar_market") || {}, sob = arm.soberanos || [], rp = blk(D, "riesgo_pais") || {}, bc = blk(D, "ar_bcra") || {}, ip = blk(D, "ipc") || {};
+    const t = Object.fromEntries(tsy.map((r) => [r.plazo, r]));
+    // inv: "pb" = variación en pb donde subir es malo; true = en % donde subir es malo; si no, subir es verde
+    const card = (n, v, d, inv, extra) => `<div class="kpi"><span class="n">${esc(n)}</span><b>${v}</b><span>${d == null ? "" : inv === "pb" ? chgInv(d, 0, " pb") : inv ? chgInv(d) : chg(d)}${extra || ""}</span></div>`;
+    const mkc = (id, n, inv) => { const r = all.find((x) => x.id === id); return r && r.last != null ? card(n, fmt(r.last, dec(r.last)), r.d, inv) : ""; };
+    const dolc = (id, n) => { const r = byId(cot, id); return r.venta != null ? card(n, fmt(r.venta, 2), r.d) : ""; };
+    const bon = (tk_) => { const r = sob.find((x) => x.ticker === tk_); return r ? card(tk_, `US$ ${fmt(r.usd, 2)}`, r.d, false, r.tir != null ? `<span class="na"> · TIR ${fmt(r.tir, 1)}%</span>` : "") : ""; };
+    const tasa = (pl, n) => (t[pl] ? card(n, pct(t[pl].tasa, 2), t[pl].d_pb, "pb") : "");
+    const grupo = (titulo, html) => `<div class="kgrupo"><h3>${titulo}</h3><div class="kpis">${html}</div></div>`;
+    const franja = `<section class="panel"><h2><span>Precios clave · variación del día</span><span class="src">${esc(meta(P, "markets").source || "")}</span></h2><div class="body franja">
+      ${grupo("Argentina", dolc("mayorista", "Mayorista") + dolc("bolsa", "MEP") + dolc("contadoconliqui", "CCL") + card("Riesgo país", `${fmt(rp.last, 0)} pb`, rp.d_pb, "pb") + mkc("MERVAL", "Merval") + bon("AL30") + bon("GD30"))}
+      ${grupo("EE.UU.", mkc("SPX", "S&P 500") + mkc("NDX", "Nasdaq 100") + mkc("VIX", "VIX", true) + tasa("2y", "Treasury 2 años") + tasa("10y", "Treasury 10 años"))}
+      ${grupo("Global", mkc("DXY", "DXY") + mkc("BRENT", "Brent") + mkc("ORO", "Oro") + mkc("SOJA", "Soja") + mkc("BTC", "Bitcoin"))}
+      <div class="note">Fed: ${fed.rango ? `${fmt(fed.rango[0], 2)}–${fmt(fed.rango[1], 2)}%` : "—"} · próximo FOMC ${dmy((fed.proximo_fomc || [])[0])}${fo ? ` (recorte ${fmt(fo.cut, 0)}% · mantener ${fmt(fo.hold, 0)}% · suba ${fmt(fo.hike, 0)}%)` : ""} · CPI ${fmt(cpi.valor, 1)}% i.a. · desempleo ${fmt(un.valor, 1)}%.
+      Argentina: IPC ${esc(ip.periodo || "")} ${fmt(ip.mensual, 1)}% m/m (${fmt(ip.interanual, 1)}% i.a.) · REM 12 meses ${fmt(bc.rem_12m?.valor, 1)}% · TAMAR ${fmt(bc.tamar?.valor, 2)}%. Tasas: en rojo cuando suben (el precio de los bonos cae).</div></div></section>`;
 
-    const dol = blk(P, "dolares") || {}, cot = dol.cotizaciones || [], br = dol.brechas || {};
-    const ban = blk(D, "bandas"), rp = blk(D, "riesgo_pais") || {}, bc = blk(D, "ar_bcra") || {}, ip = blk(D, "ipc") || {};
-    const arm = blk(P, "ar_market") || {}, sob = arm.soberanos || [];
-    const a3500 = byId(cot, "mayorista").venta;
-    const ar = table(head, ["mayorista", "bolsa", "contadoconliqui"].map((id) => { const r = byId(cot, id); return [esc(r.nombre || id), fmt(r.venta, 2), chg(r.d), chg(r.m)]; })
-      .concat([["Riesgo país", fmt(rp.last, 0), chgInv(rp.d_pb, 0, " pb"), chgInv(rp.m)]])
-      .concat(priceRows(pick(["MERVAL"]), cols)))
-      + `<h3>Brechas y banda</h3><dl class="kv"><dt>CCL / A3500</dt><dd>${fmt(br.ccl_a3500, 1)}%</dd><dt>MEP / A3500</dt><dd>${fmt(br.mep_a3500, 1)}%</dd><dt>CCL / MEP</dt><dd>${fmt(br.ccl_mep, 1)}%</dd>
-         <dt>Techo de banda</dt><dd>${ban ? fmt(ban.techo, 2) : "—"}</dd><dt>Distancia al techo</dt><dd>${ban && a3500 ? fmt((ban.techo / a3500 - 1) * 100, 1) + "%" : "—"}</dd></dl>`
-      + `<h3>Bonos y tasas</h3>` + table(["", "USD", "Día", "TIR"], sob.filter((r) => ["AL30", "GD30"].includes(r.ticker)).map((r) => [r.ticker, fmt(r.usd, 2), chg(r.d), r.tir != null ? fmt(r.tir, 1) + "%" : "—"]))
-      + `<dl class="kv"><dt>TAMAR</dt><dd>${fmt(bc.tamar?.valor, 2)}%</dd><dt>IPC ${esc(ip.periodo || "")}</dt><dd>${fmt(ip.mensual, 1)}% m/m · ${fmt(ip.interanual, 1)}% i.a.</dd><dt>REM 12 meses</dt><dd>${fmt(bc.rem_12m?.valor, 1)}%</dd></dl>`;
-
-    const gl = table(head, priceRows(pick(["DXY", "EURUSD", "USDBRL", "SX5E", "N225", "BVSP", "WTI", "BRENT", "ORO", "PLATA", "SOJA", "TRIGO", "MAIZ", "BTC"]), cols));
-
-    return `${tableroRiesgo()}<div class="cols-3">${panel("EE.UU. y Fed", us, { meta: meta(P, "markets") })}${panel("Argentina", ar, { meta: meta(P, "dolares") })}${panel("Global y commodities", gl, { meta: meta(P, "markets") })}</div>
+    return `${tableroRiesgo()}${franja}
       ${movers()}<div class="cols-2">${panel("Próximos eventos", eventsList(upcoming().slice(0, 5)), { src: "" })}${panel("Titulares", newsList(mergedNews().slice(0, 5)), { meta: meta(P, "news") })}</div>`;
   }
 
@@ -592,6 +589,12 @@
     }
     return out;
   }
+  // TIR/TEM de cada papel hace 1 semana y 1 mes (de la historia de las fichas, corrida diaria)
+  const atras = () => ((blk(D, "fichas_bonos") || {}).atras) || {};
+  // cambio en pb de una tasa: subir es malo para quien tiene el bono (cae el precio), así que la suba va en rojo
+  const dTasa = (hoy, antes) => (hoy == null || antes == null ? `<span class="na">—</span>` : chgInv((hoy - antes) * 100, 0, ""));
+  // la misma curva hace 1 mes, con los plazos corridos (cada papel tenía un mes más de vida)
+  const curvaAtras = (rows, xk, yk, dx, k = "m") => { const a = atras(); return rows.filter((r) => r[xk] != null && a[r.ticker] && a[r.ticker][k] != null).map((r) => ({ x: r[xk] + dx, y: a[r.ticker][k] })); };
   const vcCell = (v) => (v == null ? `<span class="na">—</span>` : `<span class="${Math.abs(v) < 5 ? "flat" : v > 0 ? "up" : "down"}">${v > 0 ? "+" : ""}${fmt(v, 0)}</span>`);
 
   function viewEEUU() {
@@ -604,8 +607,8 @@
           [0, 1, 2].map(fedOutlook).filter(Boolean).map((o) => [dmy(o.ev.fecha), fmt(o.cut, 0) + "%", fmt(o.hold, 0) + "%", fmt(o.hike, 0) + "%", fmt(o.esperado, 2) + "%"]))
       + `<div class="note">Probabilidades respecto del techo actual (${fmt(fed.rango?.[1], 2)}%). Mercado de predicción: no equivale a CME FedWatch.</div>`
       + (fed.dot_plot ? `<h3>Dot plot · mediana del FOMC (${dmy(fed.dot_plot.fecha)})</h3>` + table(["Fin de", ...fed.dot_plot.mediana.map((m) => esc(m.periodo))], [["Fed funds", ...fed.dot_plot.mediana.map((m) => fmt(m.tasa, 2) + "%")]]) : "");
-    const tsyHtml = table(["Plazo", "Tasa", "Día", "Mes", "Año"], curva.map((r) => [r.plazo, fmt(r.tasa, 2) + "%", chg(r.d_pb, 0, " pb"), chg(r.m_pb, 0, " pb"), chg(r.y_pb, 0, " pb")]))
-      + `<dl class="kv"><dt>Spread 10y – 2y</dt><dd>${chg(ts.spread_10_2_pb, 0, " pb")}</dd></dl>`
+    const tsyHtml = table(["Plazo", "Tasa", "Día", "Mes", "Año"], curva.map((r) => [r.plazo, fmt(r.tasa, 2) + "%", chgInv(r.d_pb, 0, " pb"), chgInv(r.m_pb, 0, " pb"), chgInv(r.y_pb, 0, " pb")]))
+      + `<dl class="kv"><dt>Spread 10y – 2y</dt><dd>${fmt(ts.spread_10_2_pb, 0)} pb</dd></dl><div class="note">Cambios de tasa en rojo cuando suben (el precio de los bonos cae).</div>`
       + curve([{ name: "Hoy", cls: "s1", line: true, points: curva.map((r) => ({ x: yrs[r.plazo], y: r.tasa, label: r.plazo })) },
                { name: "Hace 1 mes", cls: "ghost", line: true, ghost: true, points: curva.map((r) => ({ x: yrs[r.plazo], y: r.hace_1m })) }],
         { xfn: Math.sqrt, xmin: 0, xticks: [0.25, 2, 5, 10, 30].map((v) => ({ v, l: v < 1 ? "3m" : v + "a" })), xlabel: "Plazo", ylabel: "Rendimiento %", ydec: 2, title: "Curva de Treasuries" });
@@ -666,8 +669,8 @@
   }
 
   // Tabla estilo bonistas para bonos en dólares
-  const BH = ["Ticker", "Precio", "Dif", "TIR", `<span title="TIR del bono menos la de la curva ajustada a su duration, en pb. Positivo: rinde más que sus vecinos (barato)">vs curva</span>`, "TNA", "MD", "Vol (M)", "Paridad", "VT", "Próx. pago", "Días vto."];
-  const bRow = (r) => fila(r, [tk(r), fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), vcCell(r._vc), pct(r.tna, 1), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
+  const BH = ["Ticker", "Precio", "Dif", "TIR", `<span title="Cambio de la TIR en el último mes, en pb. Rojo: subió (el precio cayó)">TIR 1 m</span>`, `<span title="TIR del bono menos la de sus vecinos de duration, en pb. Positivo: rinde más (barato)">vs curva</span>`, "TNA", "MD", "Vol (M)", "Paridad", "VT", "Próx. pago", "Días vto."];
+  const bRow = (r) => fila(r, [tk(r), fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), dTasa(r.tir, (atras()[r.ticker] || {}).m), vcCell(r._vc), pct(r.tna, 1), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
     r.dias_prox != null ? `${r.dias_prox} d<span class="sub">${fmt(r.monto_prox, 2)}</span>` : "—", r.dias_vto ?? "—"]);
 
   function viewArUSD() {
@@ -680,7 +683,9 @@
       + panel("Bonos USD · Ley Argentina", table(BH, ar.map(bRow)), { meta: m });
     const grafico = panel("Curva en dólares MEP", curve([
         { name: "Ley Nueva York", cls: "s1", fit: true, points: ny.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) },
-        { name: "Ley Argentina", cls: "s2", fit: true, points: ar.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
+        { name: "Ley Argentina", cls: "s2", fit: true, points: ar.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) },
+        { name: "Hace 1 mes (punteada)", cls: "ghost", fit: true, nodots: true, nolabel: true, ghost: true, points: curvaAtras(ny, "dur_mod", "tir", 30 / 365) },
+        { name: "", cls: "ghost", fit: true, nodots: true, nolabel: true, ghost: true, points: curvaAtras(ar, "dur_mod", "tir", 30 / 365) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR %", title: "Curva de bonos en dólares" })
       + `<div class="note">Precio por 100 VN en dólares MEP, liquidación ${dmy(arm.liquidacion)}. Línea: ajuste logarítmico de cada curva. "vs curva": cuántos pb rinde por encima (verde, relativamente barato) o por debajo (rojo, caro) de lo que marcan sus 4 vecinos de duration de la misma ley; con menos de un mes al vencimiento no se calcula. Próx. pago: días y monto por 100 VN.</div>`, { src: "" });
     return `${rueda()}<div class="cols-split"><div class="view">${tablas}</div><div class="sticky">${grafico}</div></div>
@@ -696,14 +701,15 @@
       ${(blk(P, "cauciones") || []).map((c) => `<span><b>Caución ${c.plazo} d</b> ${pct(c.tna)} TNA</span>`).join("")}
       <span><b>CER</b> ${fmt(bc.cer?.valor, 2)}</span><span><b>UVA</b> ${fmt(bc.uva?.valor, 2)}</span></div>`;
     const vcF = vsCurva(pf, "dias", "tem", 30), vcC = vsCurva(cer, "dur_mod", "tir", 0.08);
-    const fija = panel("Tasa fija · LECAP y BONCAP", table(["Ticker", "Tipo", "Vto.", "Días", "Precio", "Dif", "Pago final", "TEM", `<span title="TEM de la letra menos la de la curva ajustada a su plazo, en pb de TEM. Positivo: rinde más que sus vecinos (barata)">vs curva</span>`, "TNA", "TIREA"],
-        pf.map((r) => fila(r, [tk(r), r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), vcCell(vcF[r.ticker]), pct(r.tna, 1), pct(r.tirea, 1)])))
+    const fija = panel("Tasa fija · LECAP y BONCAP", table(["Ticker", "Tipo", "Vto.", "Días", "Precio", "Dif", "Pago final", "TEM", `<span title="Cambio de la TEM en el último mes, en pb de TEM">TEM 1 m</span>`, `<span title="TEM de la letra menos la de la curva ajustada a su plazo, en pb de TEM. Positivo: rinde más que sus vecinos (barata)">vs curva</span>`, "TNA", "TIREA"],
+        pf.map((r) => fila(r, [tk(r), r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), dTasa(r.tem, (atras()[r.ticker] || {}).m), vcCell(vcF[r.ticker]), pct(r.tna, 1), pct(r.tirea, 1)])))
       + (() => { const la = blk(D, "lecaps_auto") || {}, sinPago = pf.filter((r) => r.pago_final == null).map((r) => r.ticker);
           return `<div class="note">"vs curva": pb de TEM por encima (verde, relativamente barata) o por debajo (roja, cara) de lo que marcan sus 4 vecinos de plazo; con menos de 30 días no se calcula. Las letras nuevas se suman solas: el pago final se calcula con la TEM y la fecha de emisión de la ficha de BYMA (o del resultado de licitación de Finanzas).${(la.automaticas || []).length ? ` Calculadas automáticamente: ${esc(la.automaticas.join(", "))}.` : ""}${sinPago.length ? ` Todavía sin condiciones publicadas: ${esc(sinPago.join(", "))} (se reintenta cada día).` : ""}</div>`; })(), { lead: true, meta: m });
-    const cerT = panel("Bonos CER", table(["Ticker", "Vto.", "Días", "Precio", "Dif", "TIR real", "vs curva", "MD"],
-        cer.map((r) => fila(r, [tk(r) + (r.auto ? `<span class="sub" title="Dado de alta automáticamente con la ficha de BYMA">auto</span>` : ""), dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), vcCell(vcC[r.ticker]), fmt(r.dur_mod, 2)])))
+    const cerT = panel("Bonos CER", table(["Ticker", "Vto.", "Días", "Precio", "Dif", "TIR real", "TIR 1 m", "vs curva", "MD"],
+        cer.map((r) => fila(r, [tk(r) + (r.auto ? `<span class="sub" title="Dado de alta automáticamente con la ficha de BYMA">auto</span>` : ""), dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), dTasa(r.tir, (atras()[r.ticker] || {}).m), vcCell(vcC[r.ticker]), fmt(r.dur_mod, 2)])))
       + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono. "vs curva": pb de TIR por encima (verde, barato) o por debajo (rojo, caro) de lo que marcan sus 4 vecinos de duration. Los CER con cupón y amortización (TX) suelen rendir distinto a los cero cupón por su estructura, no necesariamente por estar baratos.</div>`, { meta: m });
-    const cerCurva = panel("Curva CER", curve([{ name: "TIR real", cls: "s2", fit: true, points: cer.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
+    const cerCurva = panel("Curva CER", curve([{ name: "TIR real", cls: "s2", fit: true, points: cer.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) },
+        { name: "Hace 1 mes (punteada)", cls: "ghost", fit: true, nodots: true, nolabel: true, ghost: true, points: curvaAtras(cer, "dur_mod", "tir", 30 / 365) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR real %", title: "Curva CER" }), { src: "" });
     // inflación implícita vs REM (promedio de las medianas mensuales disponibles hasta el vencimiento)
     const remM = rem.ipc_mensual || [];
@@ -745,7 +751,8 @@
     // un solo gráfico: la curva de tasa fija (eje izquierdo) y, en pesos por dólar, el dólar de equilibrio de cada letra
     // contra el techo de la banda proyectado y el mayorista de hoy (eje derecho)
     const curvaPesos = panel("Curva de tasa fija y banda cambiaria", curvaDoble(
-        [{ name: "TEM de cada letra", cls: "s1", fit: true, labels: true, points: pf.filter((r) => r.tem != null).map((r) => ({ x: r.dias, y: r.tem, label: r.ticker, sinop: r.opero === false })) }],
+        [{ name: "TEM de cada letra", cls: "s1", fit: true, labels: true, points: pf.filter((r) => r.tem != null).map((r) => ({ x: r.dias, y: r.tem, label: r.ticker, sinop: r.opero === false })) },
+         { name: "TEM hace 1 mes", cls: "ghost", fit: true, nodots: true, ghost: true, points: curvaAtras(pf, "dias", "tem", 30) }],
         [{ name: "Dólar de equilibrio", cls: "s3", line: true, small: true, points: pfEq.map((r) => ({ x: r.dias, y: a35 * r.pago_final / r.precio, label: r.ticker })) },
          { name: "Techo de la banda", cls: "s2", line: true, nodots: true, points: pasos.map((d) => ({ x: d, y: techoAl(d) })).filter((p) => p.y != null) },
          { name: "Dólar futuro A3", cls: "s4", line: true, small: true, points: futPts.filter((p) => p.x <= maxD * 1.05) },
@@ -849,7 +856,7 @@
   function viewMercados() {
     const mk = blk(P, "markets") || {};
     const head = ["", "Último", ...Object.values(VARS)];
-    const g = (k) => table(head, priceRows(mk[k], Object.keys(VARS)));
+    const g = (k) => table(head, priceRows(mk[k], Object.keys(VARS), k === "volatilidad"));
     const m = meta(P, "markets");
     const tbc = blk(D, "tasas_bc") || [], prox = {};
     for (const b of ((blk(D, "calendar_intl") || {}).bancos || [])) if (!prox[b.banco]) prox[b.banco] = b.fecha;
@@ -1459,6 +1466,13 @@
     const ti = e.target.closest("[data-ind]"); if (ti) abrirIndicador(ti.dataset.ind);
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#ficha").hidden = true; });
+  // atajos: 1 a 9 cambian de pestaña (salvo mientras se escribe en el buscador)
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || /input|textarea/i.test(document.activeElement?.tagName || "")) return;
+    const n = +e.key; if (!n) return;
+    const b = document.querySelectorAll("nav.tabs button")[n - 1]; if (!b) return;
+    $("#ficha").hidden = true; b.click();
+  });
   document.addEventListener("click", (e) => {
     const b = e.target.closest(".alerta"); if (!b) return;
     const box = $("#alertas");
