@@ -168,7 +168,23 @@ def armar(papeles, cer, a3500, cierres_respaldo, carpeta):
         f = carpeta / f"{t}.json"
         if not f.exists() or f.stat().st_mtime < limite:
             avisos.append(f"Ficha de {t}: sin historia de precios desde hace más de 3 días ({errores[t][:60]})")
-    return {"papeles": ok, "sin_historia": sorted(errores), "avisos": avisos, "errores": dict(list(errores.items())[:10])}
+    # métrica (TIR/TEM) de hace 1 semana y 1 mes de cada papel, para dibujar la curva anterior y su cambio
+    import json as _json
+    atras = {}
+    for t in papeles:
+        try:
+            d = _json.loads((carpeta / f"{t}.json").read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if not d.get("m") or not d.get("f"):
+            continue
+        fin = date.fromisoformat(d["f"][-1])
+        def al(dias):
+            obj = (fin - timedelta(days=dias)).isoformat()
+            c = [m for f, m in zip(d["f"], d["m"]) if f <= obj and m is not None]
+            return c[-1] if c else None
+        atras[t] = {"s": al(7), "m": al(30), "hoy": next((m for m in reversed(d["m"]) if m is not None), None), "fecha": d["f"][-1]}
+    return {"papeles": ok, "sin_historia": sorted(errores), "avisos": avisos, "errores": dict(list(errores.items())[:10]), "atras": atras}
 
 
 def papeles_de(ar_market, bonos_cfg, hoy):
