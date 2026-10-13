@@ -841,7 +841,10 @@
       "TMF28": 6.5,
       "TMG28": 6.9
     },
-    "panel_general_cantidad": 15
+    "panel_general_cantidad": 15,
+    "nombres_panel_general": {
+      "REIT": "REIT Ciclo Nova"
+    }
   },
   "earnings_top20": [
     "NVDA",
