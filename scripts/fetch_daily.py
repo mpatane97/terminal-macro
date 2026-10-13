@@ -287,18 +287,58 @@ def ar_bcra():
     return out, "API BCRA v4 (oficial)"
 
 
+def _ipc_argentinadatos():
+    """IPC mensual e interanual de argentinadatos (copia de INDEC; suele actualizarse antes que datos.gob.ar)."""
+    m = http_get("https://api.argentinadatos.com/v1/finanzas/indices/inflacion")
+    mens = {r["fecha"][:7]: num(r["valor"]) for r in m if num(r.get("valor")) is not None}
+    try:
+        ia = {r["fecha"][:7]: num(r["valor"]) for r in http_get("https://api.argentinadatos.com/v1/finanzas/indices/inflacionInteranual")}
+    except Exception as e:  # noqa: BLE001
+        log.warning("IPC interanual argentinadatos: %s", e)
+        ia = {}
+    return mens, ia
+
+
 def ipc():
+    """IPC de INDEC: datos.gob.ar (oficial) y argentinadatos; se usa la que tenga el último mes publicado.
+    hist: variación mensual de los últimos 13 meses (para comparar con lo que esperaba el REM)."""
     start = (today_ar() - timedelta(days=800)).isoformat()
     base = "148.3_INIVELNAL_DICI_M_26"
-    js = http_get("https://apis.datos.gob.ar/series/api/series/",
-                  params={"ids": f"{base}:percent_change,{base}:percent_change_a_year_ago", "start_date": start,
-                          "format": "json", "limit": 1000})
-    rows = [r for r in js.get("data") or [] if r[1] is not None]
-    if len(rows) < 2:
-        raise RuntimeError(f"datos.gob.ar devolvió la serie del IPC vacía: {str(js)[:150]}")
-    last, prev = rows[-1], rows[-2]
-    return {"periodo": last[0][:7], "mensual": last[1] * 100, "interanual": (last[2] or 0) * 100 if last[2] is not None else None,
-            "mensual_anterior": prev[1] * 100}, "INDEC vía datos.gob.ar (oficial)"
+    mens, ia, fuente = {}, {}, "INDEC vía datos.gob.ar (oficial)"
+    try:
+        js = http_get("https://apis.datos.gob.ar/series/api/series/",
+                      params={"ids": f"{base}:percent_change,{base}:percent_change_a_year_ago", "start_date": start,
+                              "format": "json", "limit": 1000})
+        for r in js.get("data") or []:
+            if r[1] is not None:
+                mens[r[0][:7]] = r[1] * 100
+                if r[2] is not None:
+                    ia[r[0][:7]] = r[2] * 100
+    except Exception as e:  # noqa: BLE001
+        log.warning("IPC datos.gob.ar: %s", e)
+    try:
+        m2, ia2 = _ipc_argentinadatos()
+        if m2 and (not mens or max(m2) > max(mens)):
+            fuente = "INDEC vía argentinadatos.com (datos.gob.ar todavía sin el último mes)" if mens else "INDEC vía argentinadatos.com"
+            for k in m2:
+                if k > (max(mens) if mens else ""):
+                    mens[k] = m2[k]
+                    if k in ia2:
+                        ia[k] = ia2[k]
+    except Exception as e:  # noqa: BLE001
+        log.warning("IPC argentinadatos: %s", e)
+    meses = sorted(mens)
+    if len(meses) < 2:
+        raise RuntimeError("sin serie del IPC (datos.gob.ar y argentinadatos)")
+    ult = meses[-1]
+    inter = ia.get(ult)
+    if inter is None and len(meses) >= 12:  # interanual aproximada componiendo los 12 meses
+        p = 1.0
+        for k in meses[-12:]:
+            p *= 1 + mens[k] / 100
+        inter = (p - 1) * 100
+    return {"periodo": ult, "mensual": mens[ult], "interanual": inter, "mensual_anterior": mens[meses[-2]],
+            "hist": [[k, round(mens[k], 2)] for k in meses[-13:]]}, fuente
 
 
 def riesgo_pais():
@@ -459,6 +499,118 @@ def rem():
             "ipc_anual": [{"anio": r.get("periodo"), "mediana": num(r.get("mediana"))} for r in anual],
             "tipo_cambio": serie("Tipo de cambio nominal"), "tamar": serie("Tasa de interés (TAMAR)")}, \
         "REM del BCRA vía argentinadatos.com"
+
+
+# Datos de EE.UU. cuyo consenso se guarda (título de Forex Factory → serie FRED, cálculo, decimales, nombre, tipo)
+SORPRESA_US = {
+    "CPI m/m": ("CPIAUCSL", "mm", 1, "CPI mensual", "inflacion"),
+    "Core CPI m/m": ("CPILFESL", "mm", 1, "CPI núcleo mensual", "inflacion"),
+    "CPI y/y": ("CPIAUCSL", "yy", 1, "CPI interanual", "inflacion"),
+    "Core CPI y/y": ("CPILFESL", "yy", 1, "CPI núcleo interanual", "inflacion"),
+    "Core PCE Price Index m/m": ("PCEPILFE", "mm", 1, "PCE núcleo mensual", "inflacion"),
+    "PPI m/m": ("PPIFIS", "mm", 1, "Precios mayoristas (PPI) mensual", "inflacion"),
+    "Non-Farm Employment Change": ("PAYEMS", "dif", 0, "Nóminas no agrícolas (miles)", "actividad"),
+    "Unemployment Rate": ("UNRATE", "nivel", 1, "Desempleo", "desempleo"),
+    "Retail Sales m/m": ("RSAFS", "mm", 1, "Ventas minoristas mensual", "actividad"),
+    "Core Retail Sales m/m": ("RSFSXMV", "mm", 1, "Ventas minoristas sin autos mensual", "actividad"),
+}
+
+
+def _num_ff(txt):
+    """'0.3%' → 0.3; '199K' → 199; '-1.2%' → -1.2."""
+    m = re.search(r"-?\d+(?:\.\d+)?", str(txt or "").replace(",", ""))
+    return float(m.group()) if m else None
+
+
+def _sorpresas_us():
+    hist_f = HIST / "consenso_us.json"
+    cons = read_json(hist_f, {}) or {}
+    try:  # se guarda el consenso de la semana; Forex Factory no publica el dato real
+        for r in http_get("https://nfs.faireconomy.media/ff_calendar_thisweek.json"):
+            if r.get("country") == "USD" and r.get("title") in SORPRESA_US and _num_ff(r.get("forecast")) is not None:
+                cons[f"{r['title']}|{r['date'][:10]}"] = {"esperado": _num_ff(r["forecast"]), "texto": r["forecast"], "fecha": r["date"]}
+    except Exception as e:  # noqa: BLE001
+        log.warning("consenso Forex Factory: %s", e)
+    corte = (today_ar() - timedelta(days=550)).isoformat()
+    cons = {k: v for k, v in cons.items() if k.split("|")[1] >= corte}
+    write_json(hist_f, cons)
+    hoy, series, out = today_ar().isoformat(), {}, []
+    for k, c in sorted(cons.items(), key=lambda kv: kv[0].split("|")[1], reverse=True):
+        titulo, dia = k.split("|")
+        sid, calc, dec, nombre, tipo = SORPRESA_US[titulo]
+        fila = {"evento": titulo, "nombre": nombre, "tipo": tipo, "fecha": c["fecha"], "esperado": c["esperado"], "dec": dec}
+        d = date.fromisoformat(dia)
+        per = (d.replace(day=1) - timedelta(days=1)).replace(day=1)   # el dato publicado es del mes anterior
+        fila["periodo"] = per.isoformat()[:7]
+        if dia <= hoy:
+            if sid not in series:
+                try:
+                    series[sid] = dict(fred(sid, (today_ar() - timedelta(days=800)).isoformat()))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("FRED %s: %s", sid, e)
+                    series[sid] = {}
+            s = series[sid]
+            v = s.get(per.isoformat())
+            ant = s.get((per - timedelta(days=1)).replace(day=1).isoformat())
+            ant12 = s.get(per.replace(year=per.year - 1).isoformat())
+            real = None
+            if v is not None:
+                if calc == "nivel":
+                    real = v
+                elif calc == "dif" and ant is not None:
+                    real = v - ant
+                elif calc == "mm" and ant:
+                    real = (v / ant - 1) * 100
+                elif calc == "yy" and ant12:
+                    real = (v / ant12 - 1) * 100
+            if real is not None:
+                real = round(real, dec)
+                fila.update(real=real, sorpresa=round(real - c["esperado"], max(dec, 1)))
+        out.append(fila)
+    return out[:16]
+
+
+def _sorpresas_ar():
+    """IPC publicado contra la mediana del REM del BCRA. Para cada mes se guarda lo que esperaba la última
+    encuesta hecha antes de conocerse el dato (el REM de un mes incluye la estimación de ese mismo mes)."""
+    hist_f = HIST / "rem_ipc.json"
+    esp = read_json(hist_f, {}) or {}
+    try:
+        rows = http_get("https://api.argentinadatos.com/v1/finanzas/rem/ultimo")
+        rows = [r for r in rows if r.get("muestra", "todos") == "todos"]
+        inf = str(rows[0].get("informe") or "")[:7] if rows else ""
+        for r in rows:
+            mes = (r.get("periodoDesde") or "")[:7]
+            if (str(r.get("indicador", "")).startswith("Precios minoristas (IPC nivel general") and r.get("periodoTipo") == "mensual"
+                    and inf and mes >= inf and num(r.get("mediana")) is not None
+                    and (mes not in esp or esp[mes]["informe"] <= inf)):
+                esp[mes] = {"mediana": num(r["mediana"]), "informe": inf}
+    except Exception as e:  # noqa: BLE001
+        log.warning("REM para sorpresas: %s", e)
+    write_json(hist_f, dict(sorted(esp.items())[-36:]))
+    ip, _ = ipc()
+    real = dict(ip.get("hist") or [])
+    filas = [{"mes": m, "rem": esp[m]["mediana"], "informe": esp[m]["informe"], "real": round(real[m], 1),
+              "sorpresa": round(round(real[m], 1) - esp[m]["mediana"], 1)} for m in sorted(real) if m in esp]
+    prox = next(({"mes": m, "rem": esp[m]["mediana"], "informe": esp[m]["informe"]} for m in sorted(esp) if m > ip["periodo"]), None)
+    return {"ipc": filas[-12:], "proximo": prox}
+
+
+def sorpresas():
+    """Sorpresa de los datos: lo publicado contra lo esperado (IPC vs REM; datos de EE.UU. vs consenso).
+    Los mercados reaccionan a la diferencia, no al dato en sí."""
+    out = {}
+    try:
+        out["ar"] = _sorpresas_ar()
+    except Exception as e:  # noqa: BLE001
+        log.warning("sorpresas AR: %s", e)
+    try:
+        out["us"] = _sorpresas_us()
+    except Exception as e:  # noqa: BLE001
+        log.warning("sorpresas EE.UU.: %s", e)
+    if not out:
+        raise RuntimeError("sin datos de sorpresas")
+    return out, "IPC: INDEC; esperado: REM del BCRA (argentinadatos). EE.UU.: consenso de Forex Factory; dato: FRED"
 
 
 def us_senales():
@@ -1078,41 +1230,63 @@ COND_FIN = [  # (serie FRED, nombre, unidad, multiplicador, sube = más tensión
     ("T10YIE", "Inflación esperada 10 años", "%", 1, None),
     ("T10Y2Y", "Pendiente 10 años – 2 años", "pb", 100, None),
     ("NFCI", "Condiciones financieras (Chicago Fed)", "índice", 1, True),
+    ("LIQ_FED", "Liquidez neta de la Fed", "US$ mil M", 1, False),   # sube = más liquidez = menos tensión
 ]
 
 
+def _stats_cf(sid, nombre, unidad, tension, s):
+    """Último dato, cambio en la semana y el mes, rango y percentil de 12 meses, y la serie de 6 meses."""
+    if not s:
+        return None
+    f, v = s[-1]
+    def hace(dias):
+        obj = (date.fromisoformat(f) - timedelta(days=dias)).isoformat()
+        c = [x for d, x in s if d <= obj]
+        return c[-1] if c else None
+    ult12 = [x for d, x in s if d >= (date.fromisoformat(f) - timedelta(days=365)).isoformat()]
+    pctl = sum(1 for x in ult12 if x <= v) / len(ult12) * 100 if ult12 else None
+    w, m = hace(7), hace(30)
+    seis = [round(x, 3) for d, x in s if d >= (date.fromisoformat(f) - timedelta(days=183)).isoformat()]
+    return {"id": sid, "nombre": nombre, "unidad": unidad, "valor": v, "fecha": f, "tension": tension,
+            "d_sem": v - w if w is not None else None, "d_mes": v - m if m is not None else None,
+            "min12": min(ult12) if ult12 else None, "max12": max(ult12) if ult12 else None, "pctl12": pctl,
+            "serie": seis[::2] if len(seis) > 60 else seis}
+
+
+def _liquidez_fed(desde):
+    """Liquidez neta de la Fed (miles de millones de US$): activos de la Fed (WALCL) menos la cuenta del Tesoro
+    (TGA, WTREGEN) menos los repos reversos (RRP). Semanal, los miércoles."""
+    walcl, tga, rrp = (fred(x, desde) for x in ("WALCL", "WTREGEN", "RRPONTSYD"))
+    def al(serie, d):
+        c = [v for f, v in serie if f <= d]
+        return c[-1] if c else None
+    out = []
+    for d, v in walcl:
+        t, r = al(tga, d), al(rrp, d)
+        if t is not None and r is not None:
+            out.append((d, v / 1000 - t / 1000 - r))
+    return out
+
+
 def condiciones_fin():
-    """Condiciones financieras de EE.UU. (FRED): spreads de crédito, tasa real, inflación esperada, pendiente y NFCI.
-    Para cada una: último dato, cambio en la semana y el mes, y dónde está dentro de su rango de 12 meses."""
+    """Condiciones financieras de EE.UU. (FRED): spreads de crédito, tasa real, inflación esperada, pendiente, NFCI
+    y liquidez neta de la Fed. Para cada una: último dato, cambio en la semana y el mes, y su rango de 12 meses."""
     from concurrent.futures import ThreadPoolExecutor
     desde = (today_ar() - timedelta(days=400)).isoformat()
 
     def una(cfg):
         sid, nombre, unidad, k, tension = cfg
         try:
-            s = [(d, v * k) for d, v in fred(sid, desde)]
+            s = _liquidez_fed(desde) if sid == "LIQ_FED" else [(d, v * k) for d, v in fred(sid, desde)]
         except Exception as e:  # noqa: BLE001
             log.warning("FRED %s: %s", sid, e)
             return None
-        if not s:
-            return None
-        f, v = s[-1]
-        def hace(dias):
-            obj = (date.fromisoformat(f) - timedelta(days=dias)).isoformat()
-            c = [x for d, x in s if d <= obj]
-            return c[-1] if c else None
-        ult12 = [x for d, x in s if d >= (date.fromisoformat(f) - timedelta(days=365)).isoformat()]
-        pctl = sum(1 for x in ult12 if x <= v) / len(ult12) * 100 if ult12 else None
-        w, m = hace(7), hace(30)
-        return {"id": sid, "nombre": nombre, "unidad": unidad, "valor": v, "fecha": f, "tension": tension,
-                "d_sem": v - w if w is not None else None, "d_mes": v - m if m is not None else None,
-                "min12": min(ult12) if ult12 else None, "max12": max(ult12) if ult12 else None, "pctl12": pctl,
-                "serie": [round(x, 3) for d, x in s if d >= (date.fromisoformat(f) - timedelta(days=183)).isoformat()][::2]}
-    with ThreadPoolExecutor(6) as ex:
+        return _stats_cf(sid, nombre, unidad, tension, s)
+    with ThreadPoolExecutor(7) as ex:
         out = [r for r in ex.map(una, COND_FIN) if r]
     if not out:
         raise RuntimeError("FRED no devolvió ninguna serie")
-    return out, "FRED (ICE BofA, Tesoro de EE.UU., Fed de Chicago)"
+    return out, "FRED (ICE BofA, Tesoro de EE.UU., Fed de Chicago, Fed)"
 
 
 def tablero_ar():
@@ -1179,6 +1353,7 @@ if __name__ == "__main__":
         "riesgo_pais": riesgo_pais,
         "emae": emae,
         "rem": rem,
+        "sorpresas": sorpresas,
         "bandas": bandas,
         "dolares_hist": dolares_hist,
         "calendar_us": calendar_us,

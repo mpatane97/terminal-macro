@@ -184,7 +184,39 @@ def armar(papeles, cer, a3500, cierres_respaldo, carpeta):
             c = [m for f, m in zip(d["f"], d["m"]) if f <= obj and m is not None]
             return c[-1] if c else None
         atras[t] = {"s": al(7), "m": al(30), "hoy": next((m for m in reversed(d["m"]) if m is not None), None), "fecha": d["f"][-1]}
-    return {"papeles": ok, "sin_historia": sorted(errores), "avisos": avisos, "errores": dict(list(errores.items())[:10]), "atras": atras}
+    return {"papeles": ok, "sin_historia": sorted(errores), "avisos": avisos, "errores": dict(list(errores.items())[:10]), "atras": atras,
+            "ley": diferencial_ley(carpeta, papeles)}
+
+
+def pares_ley(tickers):
+    """Pares (ley local, ley NY) del mismo bono: AL30/GD30, ..., AE38/GD38."""
+    out = []
+    for t in sorted(tickers):
+        if t.startswith("GD"):
+            loc = "AE38" if t == "GD38" else "AL" + t[2:]
+            if loc in tickers:
+                out.append((loc, t))
+    return out
+
+
+def diferencial_ley(carpeta, papeles):
+    """Historia de la diferencia de TIR ley local − ley NY de cada par (pb), con su contexto de 12 meses.
+    Positiva: el bono de ley local rinde más (el mercado cobra un premio por la ley argentina)."""
+    import json as _json
+    from common import contexto
+    out = []
+    for loc, ny in pares_ley(set(papeles)):
+        try:
+            a, b = (_json.loads((carpeta / f"{t}.json").read_text(encoding="utf-8")) for t in (loc, ny))
+        except Exception:  # noqa: BLE001
+            continue
+        mb = dict(zip(b.get("f") or [], b.get("m") or []))
+        serie = [(f, (x - mb[f]) * 100) for f, x in zip(a.get("f") or [], a.get("m") or [])
+                 if x is not None and mb.get(f) is not None and abs(x - mb[f]) < 10]
+        c = contexto(serie)
+        if c:
+            out.append({"local": loc, "ny": ny, **c})
+    return out
 
 
 def papeles_de(ar_market, bonos_cfg, hoy):
