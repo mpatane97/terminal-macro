@@ -149,7 +149,9 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
         sid = p["series_id"]
         lv = {"CPIAUCSL": (322, 0.6), "PCEPILFE": (127, 0.25), "PAYEMS": (159500, 120), "UNRATE": (4.2, 0.05),
               "A191RL1Q225SBEA": (2.1, 0.8), "DFEDTARL": (3.75, 0), "DFEDTARU": (4.0, 0), "DGS3MO": (3.95, 0.02),
-              "DGS2": (3.58, 0.03), "DGS5": (3.69, 0.03), "DGS10": (4.12, 0.03), "DGS30": (4.71, 0.03)}[sid]
+              "DGS2": (3.58, 0.03), "DGS5": (3.69, 0.03), "DGS10": (4.12, 0.03), "DGS30": (4.71, 0.03),
+              "BAMLH0A0HYM2": (3.05, 0.04), "BAMLC0A0CM": (0.82, 0.01), "DFII10": (1.85, 0.03), "T10YIE": (2.28, 0.02),
+              "T10Y2Y": (0.55, 0.03), "NFCI": (-0.52, 0.01), "ECBDFR": (2.0, 0)}.get(sid, (1.0, 0.01))
         monthly = sid in ("CPIAUCSL", "PCEPILFE", "PAYEMS", "UNRATE")
         if monthly:
             obs, v = [], lv[0] * 0.97
@@ -307,7 +309,7 @@ common.today_ar = lambda: TODAY
 
 OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
-    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general"]})
+    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general", "condiciones_fin"]})
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 import fichas  # noqa: E402
 fichas.http_get = fake_get
