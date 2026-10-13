@@ -309,7 +309,7 @@ common.today_ar = lambda: TODAY
 
 OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
-    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general", "condiciones_fin"]})
+    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general", "condiciones_fin", "tablero_ar"]})
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 import fichas  # noqa: E402
 fichas.http_get = fake_get
