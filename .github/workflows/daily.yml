@@ -3,6 +3,7 @@ name: Datos diarios
 on:
   schedule:
     - cron: "7 23 * * 1-5"         # 20:07 hora Argentina (minuto no redondo, para que GitHub no la saltee)
+    - cron: "37 1 * * 2-6"         # 22:37 hora Argentina: respaldo, solo corre si la de las 20:07 no corrió
   workflow_dispatch: {}
 
 permissions:
@@ -33,21 +34,40 @@ jobs:
           if [ ! -f _datos/prices.json ] && [ ! -f _datos/daily.json ]; then
             rm -rf _datos && mkdir -p _datos && cp -r docs/data/. _datos/
           fi
+      # la corrida de respaldo (22:37) solo sigue si hoy todavía no hay datos diarios
+      - name: "¿Hace falta correr?"
+        id: check
+        run: |
+          if [ "${{ github.event.schedule }}" = "37 1 * * 2-6" ] && python3 -c "
+          import json, sys, datetime
+          g = json.load(open('_datos/daily.json'))['generated'][:10]
+          hoy = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)).date().isoformat()
+          sys.exit(0 if g == hoy else 1)
+          "; then
+            echo "run=false" >> "$GITHUB_OUTPUT"; echo "Los datos de hoy ya están: la corrida de respaldo no hace falta."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@v6
+        if: steps.check.outputs.run == 'true'
         with:
           python-version: "3.12"
       # uv instala las librerías mucho más rápido que pip y las guarda en caché entre corridas
       - uses: astral-sh/setup-uv@v7
+        if: steps.check.outputs.run == 'true'
         with:
           enable-cache: true
           cache-dependency-glob: requirements.txt
       - run: uv pip install --system -r requirements.txt
+        if: steps.check.outputs.run == 'true'
       - name: Bajar datos
+        if: steps.check.outputs.run == 'true'
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: python scripts/fetch_daily.py
       - name: Publicar en la rama datos (un solo commit, sin historia)
+        if: steps.check.outputs.run == 'true'
         env:
           TOKEN: ${{ github.token }}
         run: |
