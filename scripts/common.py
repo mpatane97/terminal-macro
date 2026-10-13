@@ -159,8 +159,15 @@ def changes_from_series(series, last=None):
         return cand[-1] if cand else None
 
     prev = s[-2][1] if len(s) > 1 else None
+    # volatilidad habitual: desvío de las variaciones diarias de las últimas 60 ruedas (sin contar la de hoy)
+    vals = [v for _, v in s[-62:-1]]
+    rets = [(b / a - 1) * 100 for a, b in zip(vals, vals[1:]) if a]
+    sd = None
+    if len(rets) >= 20:
+        mu = sum(rets) / len(rets)
+        sd = (sum((r - mu) ** 2 for r in rets) / (len(rets) - 1)) ** 0.5 or None
     return {
-        "last": v_last, "date": d_last,
+        "last": v_last, "date": d_last, "sd": sd,
         "d": pct(v_last, prev),
         "w": pct(v_last, at_or_before(7)),
         "m": pct(v_last, at_or_before(30)),

@@ -240,7 +240,7 @@ def _chg(hist, ticker, last):
     hoy = today_ar().isoformat()
     serie = _ajustar_splits({**{d: v for d, v in hist.get(ticker, {}).items() if d < hoy}, hoy: last})
     ch = changes_from_series(sorted(serie.items())) if last else None
-    return {k: ch[k] for k in ("w", "m", "y")} if ch else {}
+    return {k: ch[k] for k in ("w", "m", "y", "sd")} if ch else {}
 
 
 def _vol(r):

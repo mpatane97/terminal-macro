@@ -1030,11 +1030,57 @@ def panel_general():
             if n is not None:
                 nombres[t] = n
     write_json(HIST / "nombres_ar.json", nombres)
+    # "S.a." → "S.A." también en los nombres ya guardados
+    nombres = {t: re.sub(r"\bS\.a\.?(?=\s|$)", "S.A.", n, flags=re.I) if n else n for t, n in nombres.items()}
     nombres.update(a.get("nombres_panel_general", {}))  # nombres cargados a mano, si hiciera falta
     out = {"tickers": sel, "nombres": {t: nombres.get(t) or None for t in sel}, "monto_prom": {t: prom[t] for t in sel},
            "ruedas": max((len(montos[t]) for t in sel), default=0)}
     write_json(HIST / "panel_general.json", out)
     return out, "data912 (monto operado), BYMA (nombres)"
+
+
+COND_FIN = [  # (serie FRED, nombre, unidad, multiplicador, sube = más tensión)
+    ("BAMLH0A0HYM2", "Spread high yield EE.UU.", "pb", 100, True),
+    ("BAMLC0A0CM", "Spread grado de inversión EE.UU.", "pb", 100, True),
+    ("DFII10", "Tasa real 10 años (TIPS)", "%", 1, True),
+    ("T10YIE", "Inflación esperada 10 años", "%", 1, None),
+    ("T10Y2Y", "Pendiente 10 años – 2 años", "pb", 100, None),
+    ("NFCI", "Condiciones financieras (Chicago Fed)", "índice", 1, True),
+]
+
+
+def condiciones_fin():
+    """Condiciones financieras de EE.UU. (FRED): spreads de crédito, tasa real, inflación esperada, pendiente y NFCI.
+    Para cada una: último dato, cambio en la semana y el mes, y dónde está dentro de su rango de 12 meses."""
+    from concurrent.futures import ThreadPoolExecutor
+    desde = (today_ar() - timedelta(days=400)).isoformat()
+
+    def una(cfg):
+        sid, nombre, unidad, k, tension = cfg
+        try:
+            s = [(d, v * k) for d, v in fred(sid, desde)]
+        except Exception as e:  # noqa: BLE001
+            log.warning("FRED %s: %s", sid, e)
+            return None
+        if not s:
+            return None
+        f, v = s[-1]
+        def hace(dias):
+            obj = (date.fromisoformat(f) - timedelta(days=dias)).isoformat()
+            c = [x for d, x in s if d <= obj]
+            return c[-1] if c else None
+        ult12 = [x for d, x in s if d >= (date.fromisoformat(f) - timedelta(days=365)).isoformat()]
+        pctl = sum(1 for x in ult12 if x <= v) / len(ult12) * 100 if ult12 else None
+        w, m = hace(7), hace(30)
+        return {"id": sid, "nombre": nombre, "unidad": unidad, "valor": v, "fecha": f, "tension": tension,
+                "d_sem": v - w if w is not None else None, "d_mes": v - m if m is not None else None,
+                "min12": min(ult12) if ult12 else None, "max12": max(ult12) if ult12 else None, "pctl12": pctl,
+                "serie": [round(x, 3) for d, x in s if d >= (date.fromisoformat(f) - timedelta(days=183)).isoformat()][::2]}
+    with ThreadPoolExecutor(6) as ex:
+        out = [r for r in ex.map(una, COND_FIN) if r]
+    if not out:
+        raise RuntimeError("FRED no devolvió ninguna serie")
+    return out, "FRED (ICE BofA, Tesoro de EE.UU., Fed de Chicago)"
 
 
 def lecaps_auto():
@@ -1064,6 +1110,7 @@ if __name__ == "__main__":
         "cer_auto": cer_auto,
         "tamar_terms": tamar_terms,
         "us_macro": us_macro,
+        "condiciones_fin": condiciones_fin,
         "fed": fed,
         "treasuries": treasuries,
         "ar_bcra": ar_bcra,
