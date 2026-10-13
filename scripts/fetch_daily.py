@@ -295,7 +295,7 @@ def ipc():
                           "format": "json", "limit": 1000})
     rows = [r for r in js.get("data") or [] if r[1] is not None]
     if len(rows) < 2:
-        raise RuntimeError("datos.gob.ar devolvió la serie del EMAE vacía (suele ser momentáneo)")
+        raise RuntimeError(f"datos.gob.ar devolvió la serie del IPC vacía: {str(js)[:150]}")
     last, prev = rows[-1], rows[-2]
     return {"periodo": last[0][:7], "mensual": last[1] * 100, "interanual": (last[2] or 0) * 100 if last[2] is not None else None,
             "mensual_anterior": prev[1] * 100}, "INDEC vía datos.gob.ar (oficial)"
@@ -405,13 +405,22 @@ def ar_backfill():
 
 
 def emae():
-    ids = "143.3_NO_PR_2004_A_31,143.3_NO_PR_2004_A_21"
-    js = http_get("https://apis.datos.gob.ar/series/api/series/",
-                  params={"ids": f"143.3_NO_PR_2004_A_31:percent_change,143.3_NO_PR_2004_A_21:percent_change_a_year_ago",
-                          "start_date": (today_ar() - timedelta(days=500)).isoformat(), "format": "json", "limit": 1000})
-    rows = [r for r in js.get("data") or [] if r[1] is not None]
+    """EMAE desestacionalizado (variación mensual) y original (variación interanual), INDEC vía datos.gob.ar.
+    Si el pedido conjunto vuelve vacío, se piden las dos series por separado."""
+    url = "https://apis.datos.gob.ar/series/api/series/"
+    desde = (today_ar() - timedelta(days=500)).isoformat()
+    def pedir(ids):
+        js = http_get(url, params={"ids": ids, "start_date": desde, "format": "json", "limit": 1000})
+        return js.get("data") or [], js
+    data, js = pedir("143.3_NO_PR_2004_A_31:percent_change,143.3_NO_PR_2004_A_21:percent_change_a_year_ago")
+    rows = [r for r in data if r[1] is not None]
     if len(rows) < 2:
-        raise RuntimeError("datos.gob.ar devolvió la serie del EMAE vacía (suele ser momentáneo)")
+        m, js = pedir("143.3_NO_PR_2004_A_31:percent_change")
+        a, _ = pedir("143.3_NO_PR_2004_A_21:percent_change_a_year_ago")
+        ia = {r[0]: r[1] for r in a}
+        rows = [[r[0], r[1], ia.get(r[0])] for r in m if r[1] is not None]
+    if len(rows) < 2:
+        raise RuntimeError(f"datos.gob.ar devolvió la serie del EMAE vacía: {str(js)[:150]}")
     last, prev = rows[-1], rows[-2]
     return {"periodo": last[0][:7], "mensual_desest": last[1] * 100, "interanual": last[2] * 100 if last[2] is not None else None,
             "mensual_anterior": prev[1] * 100}, "INDEC vía datos.gob.ar (oficial)"
