@@ -93,6 +93,7 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | Probabilidades de la Fed | Kalshi | — | Polymarket; CME FedWatch (sin API gratis) |
 | Macro EE.UU. (CPI, PCE, empleo, PBI) y Treasuries | FRED (con clave) | — | APIs de BLS / BEA / Tesoro de EE.UU. |
 | ISM manufacturero | Comunicado de prensa (PR Newswire) | — | — |
+| Condiciones financieras (spreads high yield y grado de inversión, tasa real, inflación esperada, pendiente, NFCI) | FRED | — | — |
 | Tasa de la Fed / EFFR / dot plot | FRED, NY Fed, federalreserve.gov | — | — |
 | Fechas de reuniones FOMC | federalreserve.gov | lista en `instruments.json` | — |
 | BCRA (A3500, reservas, compras, tasas, CER, UVA, REM 12m) | API BCRA v4 | si falla el certificado, reintenta sin verificar | argentinadatos.com |
