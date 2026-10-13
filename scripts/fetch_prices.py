@@ -365,10 +365,11 @@ def ar_market():
     stocks = {r["symbol"]: r for r in _d912("/live/arg_stocks")}
     acciones = _marcar_operados([{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
                  "vol": _vol(stocks.get(t)), **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a["acciones"]])
-    panel = _marcar_operados([{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
-              "vol": _vol(stocks.get(t)), **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a.get("panel_lider", [])])
     # panel general: las más operadas (las elige la corrida diaria por monto promedio de 20 ruedas)
     pg = read_json(HIST / "panel_general.json", {}) or {}
+    panel = _marcar_operados([{"ticker": t, "precio": num(stocks.get(t, {}).get("c")), "d": num(stocks.get(t, {}).get("pct_change")),
+              "vol": _vol(stocks.get(t)), "monto_prom": (pg.get("monto_prom") or {}).get(t),
+              **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in a.get("panel_lider", [])])
     general = _marcar_operados([{"ticker": t, "nombre": (pg.get("nombres") or {}).get(t), "precio": num(stocks.get(t, {}).get("c")),
                 "d": num(stocks.get(t, {}).get("pct_change")), "vol": _vol(stocks.get(t)), "monto_prom": (pg.get("monto_prom") or {}).get(t),
                 **_chg(hist, t, num(stocks.get(t, {}).get("c")))} for t in pg.get("tickers", []) if t in stocks])

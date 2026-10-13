@@ -1182,7 +1182,9 @@ def tamar_terms():
 
 def panel_general():
     """Las acciones más operadas del panel general (fuera del panel líder), por monto promedio de 20 ruedas.
-    Guarda el monto de cada día en history/montos_ar.json y la selección en history/panel_general.json."""
+    Guarda el monto de cada día en history/montos_ar.json y la selección en history/panel_general.json.
+    También el monto promedio del panel líder (para el volumen relativo); su historia se completa al principio
+    con el volumen diario de BYMA de las fichas de acciones."""
     import feriados
     import lecaps
     a = CFG["argentina"]
@@ -1197,17 +1199,25 @@ def panel_general():
     if feriados.es_habil(hoy):
         for r in filas:
             t = r.get("symbol") or ""
-            # fuera del panel líder; sin las especies en dólares (YPFDD, ...)
-            if t in lider or "." in t or (t[-1:] in ("D", "C") and t[:-1] in simbolos):
+            # sin las especies en dólares (YPFDD, ...)
+            if "." in t or (t[-1:] in ("D", "C") and t[:-1] in simbolos):
                 continue
             m = (num(r.get("v")) or 0) * (num(r.get("c")) or 0)
             montos.setdefault(t, {})[hoy.isoformat()] = m
     corte = (hoy - timedelta(days=45)).isoformat()
+    for t in lider:  # días sin dato propio: volumen × cierre de la serie diaria de BYMA (ficha de la acción)
+        f = read_json(DATA / "fichas" / "acc" / f"{t}.json", {}) or {}
+        for d, pr, v in zip(f.get("f") or [], f.get("p") or [], f.get("v") or []):
+            if d >= corte and pr and v and d not in montos.get(t, {}):
+                montos.setdefault(t, {})[d] = pr * v
     montos = {t: {d: v for d, v in s.items() if d >= corte} for t, s in montos.items()}
     montos = {t: s for t, s in montos.items() if s}
     write_json(HIST / "montos_ar.json", montos)
-    prom = {t: sum(sorted(s.items())[-20:][i][1] for i in range(min(20, len(s)))) / min(20, len(s)) for t, s in montos.items()}
-    sel = [t for t, _ in sorted(prom.items(), key=lambda x: -x[1])[:n_sel] if prom[t] > 0]
+    def promedio(s):  # últimas 20 ruedas anteriores a hoy (el volumen relativo compara hoy contra esto)
+        v = [x for d, x in sorted(s.items()) if d < hoy.isoformat()][-20:] or list(s.values())[-1:]
+        return sum(v) / len(v) if v else 0
+    prom = {t: promedio(s) for t, s in montos.items()}
+    sel = [t for t, _ in sorted(((t, v) for t, v in prom.items() if t not in lider), key=lambda x: -x[1])[:n_sel] if prom[t] > 0]
     nombres = read_json(HIST / "nombres_ar.json", {}) or {}
     def nombre(t):  # ficha de BYMA; si no trae un nombre útil se guarda vacío y no se vuelve a pedir
         try:
@@ -1218,19 +1228,24 @@ def panel_general():
         n = f.get("emisor") or f.get("razonSocial") or f.get("denominacion") or f.get("descripcion")
         # la ficha a veces trae la descripción del título ("ACCIONES ORDINARIAS ...") y no la empresa
         if not n or re.search(r"ACCION|LETRA|BONO|CEDEAR|OBLIGACI", str(n), re.I):
-            return t, ""
+            # sin nombre de la empresa: se usa la descripción del título, sin el tipo de acción
+            d = re.sub(r"\b(ACCIONES?|ACC|ORD(INARIAS?)?|ESCRIT(URALES?)?|ESC|PREF(ERIDAS?)?|CLASE \w|V\.?N\.?\s*\$?\s*[\d.,]+|\d+\s*VOTOS?|1 VOTO)\b\.?", " ",
+                       str(f.get("denominacion") or f.get("descripcion") or ""), flags=re.I)
+            n = re.sub(r"\s+", " ", d).strip(" -.,")
+            if len(n) < 3 or n.upper() == t or re.search(r"LETRA|BONO|OBLIGACI", n, re.I):
+                return t, ""
         ws = str(n).split()
         return t, " ".join(w.upper() if "." in w else w.capitalize() if (len(w) > 3 or i == 0) else w.lower() for i, w in enumerate(ws))
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(6) as ex:
-        for t, n in ex.map(nombre, [t for t in sel if t not in nombres]):
+        for t, n in ex.map(nombre, [t for t in sel if not nombres.get(t)]):   # los vacíos se vuelven a intentar
             if n is not None:
                 nombres[t] = n
     write_json(HIST / "nombres_ar.json", nombres)
     # "S.a." → "S.A." también en los nombres ya guardados
     nombres = {t: re.sub(r"\bS\.a\.?(?=\s|$)", "S.A.", n, flags=re.I) if n else n for t, n in nombres.items()}
     nombres.update(a.get("nombres_panel_general", {}))  # nombres cargados a mano, si hiciera falta
-    out = {"tickers": sel, "nombres": {t: nombres.get(t) or None for t in sel}, "monto_prom": {t: prom[t] for t in sel},
+    out = {"tickers": sel, "nombres": {t: nombres.get(t) or None for t in sel}, "monto_prom": {t: prom[t] for t in sel + sorted(lider) if prom.get(t)},
            "ruedas": max((len(montos[t]) for t in sel), default=0)}
     write_json(HIST / "panel_general.json", out)
     return out, "data912 (monto operado), BYMA (nombres)"

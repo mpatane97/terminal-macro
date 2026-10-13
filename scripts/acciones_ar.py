@@ -194,4 +194,8 @@ def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6, extra=(), nombres=Non
         fu, cap = d.get("fund") or {}, (d.get("info") or {}).get("cap")
         if cap and fu.get("patrimonio") and not 0.05 <= cap / fu["patrimonio"] <= 20:
             avisos.append(f"{t}: precio/valor libro de {cap / fu['patrimonio']:,.1f} veces, fuera de rango (¿estados en otra moneda?)")
-    return {"acciones": hechas, "avisos": avisos, "sin_historia": sin, "con_adr": sorted(adrs), "ccl_hoy": ccl_hoy}
+    # Merval en dólares CCL: dónde está dentro de su rango de 12 meses (la medida más usada de si las acciones
+    # argentinas están caras o baratas contra su historia)
+    from common import contexto
+    m_usd = contexto([(d, c / _valor_al(ccl, d)) for d, c in merval if c and _valor_al(ccl, d)]) if merval else None
+    return {"acciones": hechas, "avisos": avisos, "sin_historia": sin, "con_adr": sorted(adrs), "ccl_hoy": ccl_hoy, "merval_usd": m_usd}
