@@ -31,6 +31,8 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 
 ## Uso
 
+- **Tablero de riesgo** (Resumen): 12 indicadores clave con su cambio del mes, dónde están dentro de su rango de 12 meses (percentil) y un mini gráfico de 6 meses. Abajo, lo que está en zona de alerta.
+- **Carry en pesos** (AR Pesos): tasa real esperada, devaluación implícita en el futuro y en la banda, y dólar de equilibrio de cada letra.
 - **Buscador** (arriba, o tecla `/`): escribí un ticker o un nombre (GD30, MELI, Galicia) y Enter abre su ficha.
 - **Fichas**: cualquier fila con `›` (bonos, letras, acciones, ADRs, empresas y "Qué se movió hoy") abre la ficha del activo.
 
