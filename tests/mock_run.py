@@ -151,16 +151,22 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
               "A191RL1Q225SBEA": (2.1, 0.8), "DFEDTARL": (3.75, 0), "DFEDTARU": (4.0, 0), "DGS3MO": (3.95, 0.02),
               "DGS2": (3.58, 0.03), "DGS5": (3.69, 0.03), "DGS10": (4.12, 0.03), "DGS30": (4.71, 0.03),
               "BAMLH0A0HYM2": (3.05, 0.04), "BAMLC0A0CM": (0.82, 0.01), "DFII10": (1.85, 0.03), "T10YIE": (2.28, 0.02),
-              "T10Y2Y": (0.55, 0.03), "NFCI": (-0.52, 0.01), "ECBDFR": (2.0, 0)}.get(sid, (1.0, 0.01))
-        monthly = sid in ("CPIAUCSL", "PCEPILFE", "PAYEMS", "UNRATE")
+              "T10Y2Y": (0.55, 0.03), "NFCI": (-0.52, 0.01), "ECBDFR": (2.0, 0),
+              "WALCL": (6.6e6, 8000), "WTREGEN": (8.5e5, 20000), "RRPONTSYD": (25, 5), "CPILFESL": (330, 0.5), "PPIFIS": (150, 0.3),
+              "RSAFS": (720000, 2000), "RSFSXMV": (580000, 1500)}.get(sid, (1.0, 0.01))
+        monthly = sid in ("CPIAUCSL", "PCEPILFE", "PAYEMS", "UNRATE", "CPILFESL", "PPIFIS", "RSAFS", "RSFSXMV")
         if monthly:
             obs, v = [], lv[0] * 0.97
             for m in pd.date_range(end=pd.Timestamp(2026, 8, 1), periods=26, freq="MS"):
-                v += random.uniform(0, lv[1] * 2) if sid in ("CPIAUCSL", "PCEPILFE", "PAYEMS") else random.uniform(-lv[1], lv[1])
+                v += random.uniform(0, lv[1] * 2) if sid in ("CPIAUCSL", "PCEPILFE", "PAYEMS", "CPILFESL", "PPIFIS", "RSAFS", "RSFSXMV") else random.uniform(-lv[1], lv[1])
                 obs.append({"date": m.strftime("%Y-%m-%d"), "value": str(round(v, 3))})
             obs.sort(key=lambda o: o["date"])
             return {"observations": obs}
         return {"observations": [{"date": d, "value": str(v)} for d, v in series(380, lv[0], lv[1])]}
+    if "indices/inflacionInteranual" in url:
+        return [{"fecha": "2026-08-31", "valor": 31.5}, {"fecha": "2026-09-30", "valor": 30.9}]
+    if "indices/inflacion" in url:
+        return [{"fecha": f"2026-{m:02d}-28", "valor": v} for m, v in [(4, 2.4), (5, 2.0), (6, 1.9), (7, 2.1), (8, 1.9), (9, 2.0)]]
     if "fred/series/release" in url:
         return {"releases": [{"id": 10}]}
     if "fred/release/dates" in url:
@@ -210,6 +216,7 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
     if "faireconomy" in url:
         return [{"title": "ISM Manufacturing PMI", "country": "USD", "date": "2026-10-01T10:00:00-04:00", "impact": "High", "forecast": "49.2", "previous": "48.7"},
                 {"title": "Non-Farm Employment Change", "country": "USD", "date": "2026-10-02T08:30:00-04:00", "impact": "High", "forecast": "90K", "previous": "22K"},
+                {"title": "CPI m/m", "country": "USD", "date": "2026-09-11T08:30:00-04:00", "impact": "High", "forecast": "0.3%", "previous": "0.2%"},
                 {"title": "Unemployment Rate", "country": "USD", "date": "2026-10-02T08:30:00-04:00", "impact": "High", "forecast": "4.2%", "previous": "4.2%"},
                 {"title": "CPI Flash Estimate y/y", "country": "EUR", "date": "2026-10-02T05:00:00-04:00", "impact": "High", "forecast": "2.4%", "previous": "2.3%"},
                 {"title": "Caixin Services PMI", "country": "CNY", "date": "2026-10-03T21:45:00-04:00", "impact": "High", "forecast": "51.2", "previous": "50.9"},
@@ -309,7 +316,7 @@ common.today_ar = lambda: TODAY
 
 OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
-    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general", "condiciones_fin", "tablero_ar"]})
+    ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general", "condiciones_fin", "tablero_ar", "sorpresas"]})
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
 import fichas  # noqa: E402
 fichas.http_get = fake_get

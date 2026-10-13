@@ -85,6 +85,17 @@ ev = indec.parsear(texto, 2026)
 chequear("INDEC: IPC del 13/10", [e["evento"] for e in ev if e["fecha"] == "2026-10-13"], ["IPC septiembre (INDEC)"])
 chequear("INDEC: EMAE del 21/10", [e["evento"] for e in ev if e["fecha"] == "2026-10-21"], ["EMAE agosto (INDEC)"])
 
+import fichas  # noqa: E402
+chequear("Pares por ley", fichas.pares_ley({"AL30", "GD30", "AE38", "GD38", "GD46", "AL35", "GD35"}), [("AL30", "GD30"), ("AL35", "GD35"), ("AE38", "GD38")])
+import fetch_daily  # noqa: E402
+chequear("Consenso '0.3%'", fetch_daily._num_ff("0.3%"), 0.3, 1e-9)
+chequear("Consenso '-1.2%'", fetch_daily._num_ff("-1.2%"), -1.2, 1e-9)
+chequear("Consenso '199K'", fetch_daily._num_ff("199K"), 199.0, 1e-9)
+fetch_daily.fred = lambda sid, desde=None: {"WALCL": [("2026-09-24", 6600000.0), ("2026-10-01", 6590000.0)],
+                                            "WTREGEN": [("2026-09-24", 850000.0), ("2026-10-01", 900000.0)],
+                                            "RRPONTSYD": [("2026-09-23", 20.0), ("2026-09-30", 15.0), ("2026-10-02", 99.0)]}[sid]
+chequear("Liquidez neta de la Fed", fetch_daily._liquidez_fed("2026-01-01"), [("2026-09-24", 5730.0), ("2026-10-01", 5675.0)])
+
 for f in ("instruments.json", "bonos.json", "calendario_ar.json"):
     json.load(open(ROOT / "config" / f, encoding="utf-8"))
 print("OK    archivos de config/ son JSON válidos")
