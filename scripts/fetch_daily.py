@@ -422,8 +422,20 @@ def emae():
     if len(rows) < 2:
         raise RuntimeError(f"datos.gob.ar devolvió la serie del EMAE vacía: {str(js)[:150]}")
     last, prev = rows[-1], rows[-2]
-    return {"periodo": last[0][:7], "mensual_desest": last[1] * 100, "interanual": last[2] * 100 if last[2] is not None else None,
-            "mensual_anterior": prev[1] * 100}, "INDEC vía datos.gob.ar (oficial)"
+    ia = last[2] * 100 if last[2] is not None else None
+    fuente = "INDEC vía datos.gob.ar (oficial)"
+    if ia is None:  # la serie original no respondió: interanual con la serie desestacionalizada (aproximado)
+        try:
+            niv = {r[0]: r[1] for r in pedir("143.3_NO_PR_2004_A_31")[0] if r[1] is not None}
+            y, mth = int(last[0][:4]), last[0][5:7]
+            hace = niv.get(f"{y - 1}-{mth}-01")
+            if hace and niv.get(last[0]):
+                ia = (niv[last[0]] / hace - 1) * 100
+                fuente += "; interanual sobre la serie desestacionalizada"
+        except Exception as e:  # noqa: BLE001
+            log.warning("EMAE interanual: %s", e)
+    return {"periodo": last[0][:7], "mensual_desest": last[1] * 100, "interanual": ia,
+            "mensual_anterior": prev[1] * 100}, fuente
 
 
 def rem():
