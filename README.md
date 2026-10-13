@@ -17,7 +17,7 @@ fuentes públicas ──► GitHub Actions (scripts/*.py) ──► rama "datos"
 | Corrida (Actions) | Cuándo (hora Argentina) | Qué hace | Tarda |
 | --- | --- | --- | --- |
 | **Precios cada 15 min** | lun a vie, 10:07 a 17:12 | `scripts/fetch_prices.py` → `prices.json` | ~20 s |
-| **Datos diarios** | lun a vie, 20:07 | `scripts/fetch_daily.py` → `daily.json` y `fichas/` | ~1 min |
+| **Datos diarios** | lun a vie, 20:07 (respaldo 22:37 si no corrió) | `scripts/fetch_daily.py` → `daily.json` y `fichas/` | ~1 min |
 | **Prueba** | cada vez que se sube algo a `main` | `tests/regresion.py` + `tests/mock_run.py`: si falla, GitHub manda un mail | ~1 min |
 | **Mantenimiento mensual** | día 1 de cada mes | reactiva las corridas y deja un commit, para que GitHub no las apague por inactividad | segundos |
 
@@ -33,6 +33,8 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 
 - **Tablero de riesgo** (Resumen): 12 indicadores clave con su cambio del mes, dónde están dentro de su rango de 12 meses (percentil) y un mini gráfico de 6 meses. Abajo, lo que está en zona de alerta.
 - **Carry en pesos** (AR Pesos): tasa real esperada, devaluación implícita en el futuro y en la banda, y dólar de equilibrio de cada letra.
+- **Atajos**: teclas 1 a 9 para cambiar de pestaña, `/` para buscar, Esc para cerrar una ficha.
+- **Curvas**: la línea punteada es la curva de hace 1 mes; las columnas "TIR 1 m" / "TEM 1 m" muestran el cambio en pb (en rojo si subió, es decir, si el precio cayó).
 - **Buscador** (arriba, o tecla `/`): escribí un ticker o un nombre (GD30, MELI, Galicia) y Enter abre su ficha.
 - **Fichas**: cualquier fila con `›` (bonos, letras, acciones, ADRs, empresas y "Qué se movió hoy") abre la ficha del activo.
 
