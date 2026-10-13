@@ -163,23 +163,33 @@
   /* ---------- Qué se movió hoy: mayores subas y bajas del día entre todos los activos ---------- */
   const GRUPO = { indices_eeuu: "Índice", futuros: "Futuro", volatilidad: "Volatilidad", indices_mundo: "Índice", monedas: "Moneda", commodities: "Commodity",
     cripto: "Cripto", argentina: "Índice AR", sectores: "Sector EE.UU.", bonos_etf: "ETF bonos", adrs: "ADR", megacaps_eeuu: "Acción EE.UU.", megacaps_global: "Acción global", empresas_seleccion: "Tu selección" };
+  // volatilidad diaria típica cuando no hay historia propia (letras y bonos en pesos)
+  const SD_TIPO = { LECAP: 0.15, BONCAP: 0.25, CER: 0.4, TAMAR: 0.3, "Bono $": 0.3 };
   function movers() {
     const mk = blk(P, "markets") || {}, arm = blk(P, "ar_market") || {};
     const seen = new Set(), all = [];
-    const add = (nombre, tipo, d, key, abre) => { if (d == null || !isFinite(d) || Math.abs(d) > 40 || seen.has(key)) return; seen.add(key); all.push({ nombre, tipo, d, abre }); };
+    const add = (nombre, tipo, d, key, abre, sd) => {
+      if (d == null || !isFinite(d) || Math.abs(d) > 40 || seen.has(key)) return;
+      seen.add(key);
+      const s = sd && sd > 0.05 ? sd : SD_TIPO[tipo] ?? null;
+      all.push({ nombre, tipo, d, abre, z: s ? d / s : null });
+    };
     const empresa = new Set(["megacaps_eeuu", "megacaps_global", "empresas_seleccion"]), al = arm.adr_local || {};
     for (const [g, arr] of Object.entries(mk)) for (const r of arr || []) add(r.nombre, GRUPO[g] || g, r.d, "Y:" + r.id,
-      empresa.has(g) ? `data-emp="${esc(r.id)}"` : g === "adrs" && al[r.id] ? `data-acc="${esc(al[r.id])}"` : "");
-    for (const r of [...(arm.panel_lider || []), ...(arm.acciones || []), ...(arm.panel_general || [])]) add(r.ticker, "Acción AR", r.d, "A:" + r.ticker, `data-acc="${esc(r.ticker)}"`);
-    for (const r of [...(arm.soberanos || []), ...(arm.bopreal || [])]) add(r.ticker, "Bono USD", r.d, "B:" + r.ticker, `data-tk="${esc(r.ticker)}"`);
-    for (const r of [...(arm.pesos_fija || []), ...(arm.cer_tamar || [])]) add(r.ticker, r.tipo || "Bono $", r.d, "P:" + r.ticker, `data-tk="${esc(r.ticker)}"`);
+      empresa.has(g) ? `data-emp="${esc(r.id)}"` : g === "adrs" && al[r.id] ? `data-acc="${esc(al[r.id])}"` : "", r.sd);
+    for (const r of [...(arm.panel_lider || []), ...(arm.acciones || []), ...(arm.panel_general || [])]) add(r.ticker, "Acción AR", r.d, "A:" + r.ticker, `data-acc="${esc(r.ticker)}"`, r.sd);
+    for (const r of [...(arm.soberanos || []), ...(arm.bopreal || [])]) add(r.ticker, "Bono USD", r.d, "B:" + r.ticker, `data-tk="${esc(r.ticker)}"`, r.sd);
+    for (const r of [...(arm.pesos_fija || []), ...(arm.cer_tamar || [])]) add(r.ticker, r.tipo || "Bono $", r.d, "P:" + r.ticker, `data-tk="${esc(r.ticker)}"`, r.sd);
     if (!all.length) return "";
-    const ord = [...all].sort((a, b) => b.d - a.d);
-    const li = (r) => `<li ${r.abre ? `${r.abre} class="clic" title="Ver ficha"` : ""}><span>${esc(r.nombre)}<span class="sub">${esc(r.tipo)}</span></span>${chg(r.d)}</li>`;
+    // orden: cuántas veces su movimiento diario habitual se movió hoy (así un bono que se mueve 3 veces lo normal
+    // aparece antes que una cripto que se mueve 4% en un día común)
+    const conZ = all.filter((r) => r.z != null), ord = [...conZ].sort((a, b) => b.z - a.z);
+    const li = (r) => `<li ${r.abre ? `${r.abre} class="clic" title="Ver ficha"` : ""}><span>${esc(r.nombre)}<span class="sub">${esc(r.tipo)}</span></span><span>${chg(r.d)}<span class="sub" title="Veces su movimiento diario habitual (desvío de las últimas 60 ruedas)">${fmt(Math.abs(r.z), 1)}×</span></span></li>`;
     const nUp = all.filter((r) => r.d > 0).length;
     return `<section class="panel lead movers"><h2>Qué se movió hoy <span class="src">${all.length} activos · ${nUp} suben, ${all.length - nUp} bajan o sin cambio</span></h2>
-      <div class="mv-grid"><div><h3>Mayores subas</h3><ul class="mv">${ord.slice(0, 6).map(li).join("")}</ul></div>
-      <div><h3>Mayores bajas</h3><ul class="mv">${ord.slice(-6).reverse().map(li).join("")}</ul></div></div></section>`;
+      <div class="mv-grid"><div><h3>Mayores subas</h3><ul class="mv">${ord.filter((r) => r.z > 0).slice(0, 6).map(li).join("")}</ul></div>
+      <div><h3>Mayores bajas</h3><ul class="mv">${ord.filter((r) => r.z < 0).slice(-6).reverse().map(li).join("")}</ul></div></div>
+      <div class="note">Ordenados por movimiento inusual: "3,0×" = se movió 3 veces lo que se mueve en un día normal (desvío de sus últimas 60 ruedas).</div></section>`;
   }
 
   function viewResumen() {
@@ -238,6 +248,10 @@
     if (c10_3 != null) sem.push(["Curva 10 años – 3 meses", `${fmt(c10_3, 0)} pb`, c10_3 < 0 ? chip("rojo", "Invertida") : c10_3 < 50 ? chip("amarillo", "Plana") : chip("verde", "Con pendiente"), "Invertida: señal histórica de recesión"]);
     if (vix.last != null) sem.push(["VIX", fmt(vix.last, 1), vix.last > 25 ? chip("rojo", "Estrés") : vix.last > 15 ? chip("amarillo", "Normal") : chip("verde", "Calma"), "Menos de 15 calma · más de 25 estrés"]);
     if (cpi.valor != null && cpi.anterior != null) { const dlt = cpi.valor - cpi.anterior; sem.push(["Tendencia del CPI", `${fmt(cpi.anterior, 1)}% → ${fmt(cpi.valor, 1)}%`, dlt > 0.05 ? chip("rojo", "Acelera") : dlt < -0.05 ? chip("verde", "Desacelera") : chip("amarillo", "Estable"), "Interanual vs. mes anterior"]); }
+    const cfx = Object.fromEntries((blk(D, "condiciones_fin") || []).map((r) => [r.id, r]));
+    const hy = cfx.BAMLH0A0HYM2, nf = cfx.NFCI;
+    if (hy) sem.push(["Spread high yield", `${fmt(hy.valor, 0)} pb`, hy.pctl12 >= 80 || hy.d_mes > 75 ? chip("rojo", "Tensión") : hy.pctl12 >= 50 ? chip("amarillo", "Normal") : chip("verde", "Calma"), `Percentil ${fmt(hy.pctl12, 0)} de 12 meses · mes ${hy.d_mes > 0 ? "+" : ""}${fmt(hy.d_mes, 0)} pb`]);
+    if (nf) sem.push(["Condiciones financieras (NFCI)", fmt(nf.valor, 2), nf.valor > 0 ? chip("rojo", "Ajustadas") : nf.valor > -0.3 ? chip("amarillo", "Neutras") : chip("verde", "Holgadas"), "Negativo: más holgadas que el promedio histórico"]);
     if (sen.sahm != null) sem.push(["Regla de Sahm", fmt(sen.sahm, 2), sen.sahm >= 0.5 ? chip("rojo", "Señal de recesión") : sen.sahm >= 0.3 ? chip("amarillo", "Atención") : chip("verde", "Sin señal"), "Desempleo (prom. 3 meses) vs. mínimo de 12 meses · 0,5 = señal"]);
 
     // mercado vs Fed
@@ -252,6 +266,7 @@
     if (o0) L.push(`Para la próxima reunión (${dmy(o0.ev.fecha)}) Kalshi asigna ${fmt(o0.hold, 0)}% a mantener, ${fmt(o0.hike, 0)}% a una suba y ${fmt(o0.cut, 0)}% a un recorte.`);
     if (kalDic != null && dot26) { const dd = kalDic - dot26.tasa; L.push(`El mercado espera la tasa en ${fmt(kalDic, 2)}% a fin de año, ${Math.abs(dd) < 0.1 ? "en línea con" : dd > 0 ? "por encima de" : "por debajo de"} la mediana del dot plot (${fmt(dot26.tasa, 2)}%).`); }
     if (c10_3 != null) L.push(`La curva 10 años – 3 meses está ${c10_3 < 0 ? "invertida" : c10_3 < 50 ? "casi plana" : "con pendiente positiva"} (${fmt(c10_3, 0)} pb)${t["10y"] != null ? `, con el 10 años en ${fmt(t["10y"], 2)}%` : ""}.`);
+    if (hy) L.push(`El spread high yield está en ${fmt(hy.valor, 0)} pb (${hy.d_mes > 0 ? "+" : ""}${fmt(hy.d_mes, 0)} pb en el mes), en el percentil ${fmt(hy.pctl12, 0)} de los últimos 12 meses: el crédito ${hy.pctl12 >= 80 || hy.d_mes > 75 ? "muestra tensión, algo que suele anticipar presión sobre emergentes y bonos argentinos" : hy.pctl12 <= 30 ? "está tranquilo, un entorno favorable para activos de riesgo" : "está en niveles normales"}.`);
     if (un.valor != null && sen.sahm != null) L.push(`El desempleo está en ${fmt(un.valor, 1)}% y la regla de Sahm en ${fmt(sen.sahm, 2)}: ${sen.sahm >= 0.5 ? "activó la señal de recesión" : sen.sahm >= 0.3 ? "se acerca a la señal de recesión (0,5)" : "lejos de la señal de recesión (0,5)"}.`);
 
     const lect = `<ul class="lectura">${L.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><div class="note">Texto generado con reglas fijas a partir de los datos de esta pestaña; no es una recomendación.</div>`;
@@ -263,6 +278,24 @@
     return { lect: panel("Lectura del momento", lect, { lead: true, src: "" }), sem: panel("Semáforo de señales", semT, { src: "" }),
       mvf: panel("Mercado vs. Fed", mvfT, { src: "" }), real: panel("Tasa real", realT, { src: "" }) };
   }
+
+  // mini gráfico de tendencia (sin ejes) para tablas
+  function spark(vals, inv) {
+    const v = (vals || []).filter((x) => x != null); if (v.length < 3) return "";
+    const lo = Math.min(...v), hi = Math.max(...v), W = 80, H = 18, X = (i) => (i / (v.length - 1)) * W, Y = (x) => H - 1 - ((x - lo) / ((hi - lo) || 1)) * (H - 2);
+    const sube = v[v.length - 1] > v[0], malo = inv ? sube : !sube;
+    return `<svg class="spark ${malo ? "down" : "up"}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><polyline fill="none" stroke-width="1.4" points="${v.map((x, i) => `${X(i).toFixed(1)},${Y(x).toFixed(1)}`).join(" ")}"/></svg>`;
+  }
+  // caro o barato contra la curva: rendimiento del papel menos el de la curva ajustada a su plazo (pb).
+  // Positivo: rinde más que sus vecinos (relativamente barato). Negativo: rinde menos (relativamente caro).
+  function vsCurva(rows, xk, yk) {
+    const ps = rows.filter((r) => r[xk] != null && r[yk] != null && r[xk] > 0).map((r) => ({ x: r[xk], y: r[yk], sinop: r.opero === false, t: r.ticker })).sort((a, b) => a.x - b.x);
+    const aj = ajusteLog(ps), out = {};
+    if (!aj || ps.filter((p) => !p.sinop).length < 4) return out;
+    for (const p of ps) out[p.t] = (p.y - aj.f(p.x)) * 100;
+    return out;
+  }
+  const vcCell = (v) => (v == null ? `<span class="na">—</span>` : `<span class="${Math.abs(v) < 5 ? "flat" : v > 0 ? "up" : "down"}">${v > 0 ? "+" : ""}${fmt(v, 0)}</span>`);
 
   function viewEEUU() {
     const fed = blk(D, "fed") || {}, ts = blk(D, "treasuries") || {}, curva = ts.curva || [];
@@ -284,8 +317,17 @@
       `${esc(r.nombre)}<span class="sub">${esc(r.tema)}</span>`, esc(r.periodo || "—"),
       `${fmt(r.valor, r.unidad === "miles" ? 0 : 1)}<span class="sub">${esc(r.unidad)}</span>`, fmt(r.anterior, r.unidad === "miles" ? 0 : 1), dmy(r.proximo)]));
     const L = lecturaEEUU();
+    const cf = blk(D, "condiciones_fin") || [];
+    const u = (r, v, sig) => { const c = r.tension ? chgInv : chg;  // si subir es tensión, la suba va en rojo
+      return v == null ? "—" : r.unidad === "pb" ? (sig ? c(v, 0, " pb") : `${fmt(v, 0)} pb`) : r.unidad === "%" ? (sig ? c(v * 100, 0, " pb") : pct(v, 2)) : (sig ? c(v, 2, "") : fmt(v, 2)); };
+    const estadoCf = (r) => r.tension == null || r.pctl12 == null ? `<span class="na">—</span>` : r.pctl12 >= 80 ? chip("rojo", "Tenso") : r.pctl12 <= 20 ? chip("verde", "Holgado") : chip("amarillo", "Normal");
+    const cfHtml = table(["Indicador", "Último", "Semana", "Mes", "Rango 12 meses", "Percentil", "6 meses", "Estado"], cf.map((r) => [
+      `${esc(r.nombre)}<span class="sub">${dmy(r.fecha)}</span>`, `<b>${u(r, r.valor)}</b>`, u(r, r.d_sem, true), u(r, r.d_mes, true),
+      `${u(r, r.min12)} – ${u(r, r.max12)}`, r.pctl12 != null ? fmt(r.pctl12, 0) : "—", spark(r.serie, r.tension), estadoCf(r)]), [0])
+      + `<div class="note">Percentil: dónde está hoy dentro de los últimos 12 meses (100 = máximo). Estado, para los que suben con la tensión: percentil 80 o más "tenso", 20 o menos "holgado". Spreads: rendimiento extra que pagan los bonos corporativos sobre los Treasuries; cuando suben, el mercado pide más por el riesgo y suele preceder caídas en emergentes. NFCI: positivo = condiciones más ajustadas que el promedio histórico.</div>`;
     return `${L.lect}<div class="cols-2"><div class="view">${L.sem}${panel("Fed", fedHtml, { meta: meta(D, "fed") })}${L.real}</div>
       <div class="view">${panel("Treasuries", tsyHtml, { meta: meta(D, "treasuries") })}${L.mvf}</div></div>
+      ${panel("Condiciones financieras", cfHtml, { meta: meta(D, "condiciones_fin") })}
       ${panel("Macro EE.UU.", macroHtml, { meta: meta(D, "us_macro") })}`;
   }
 
@@ -326,14 +368,15 @@
   }
 
   // Tabla estilo bonistas para bonos en dólares
-  const BH = ["Ticker", "Precio", "Dif", "TIR", "TNA", "MD", "Vol (M)", "Paridad", "VT", "Próx. pago", "Días vto."];
-  const bRow = (r) => fila(r, [tk(r), fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), pct(r.tna, 1), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
+  const BH = ["Ticker", "Precio", "Dif", "TIR", `<span title="TIR del bono menos la de la curva ajustada a su duration, en pb. Positivo: rinde más que sus vecinos (barato)">vs curva</span>`, "TNA", "MD", "Vol (M)", "Paridad", "VT", "Próx. pago", "Días vto."];
+  const bRow = (r) => fila(r, [tk(r), fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), vcCell(r._vc), pct(r.tna, 1), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
     r.dias_prox != null ? `${r.dias_prox} d<span class="sub">${fmt(r.monto_prox, 2)}</span>` : "—", r.dias_vto ?? "—"]);
 
   function viewArUSD() {
     const arm = blk(P, "ar_market") || {}, sob = arm.soberanos || [], bop = arm.bopreal || [];
     const byMd = (a) => [...a].sort((x, y) => (x.dur_mod ?? 99) - (y.dur_mod ?? 99));
     const ny = byMd(sob.filter((r) => r.ley === "NY")), ar = byMd(sob.filter((r) => r.ley === "Local"));
+    for (const g of [ny, ar]) { const v = vsCurva(g, "dur_mod", "tir"); for (const r of g) r._vc = v[r.ticker]; }
     const m = meta(P, "ar_market");
     const tablas = panel("Bonos USD · Ley Nueva York", table(BH, ny.map(bRow)), { lead: true, meta: m })
       + panel("Bonos USD · Ley Argentina", table(BH, ar.map(bRow)), { meta: m });
@@ -341,7 +384,7 @@
         { name: "Ley Nueva York", cls: "s1", fit: true, points: ny.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) },
         { name: "Ley Argentina", cls: "s2", fit: true, points: ar.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR %", title: "Curva de bonos en dólares" })
-      + `<div class="note">Precio por 100 VN en dólares MEP, liquidación ${dmy(arm.liquidacion)}. Línea: ajuste logarítmico de cada curva. Próx. pago: días y monto por 100 VN.</div>`, { src: "" });
+      + `<div class="note">Precio por 100 VN en dólares MEP, liquidación ${dmy(arm.liquidacion)}. Línea: ajuste logarítmico de cada curva. "vs curva": cuántos pb rinde por encima (verde, relativamente barato) o por debajo (rojo, caro) de la curva de su misma ley. Próx. pago: días y monto por 100 VN.</div>`, { src: "" });
     return `${rueda()}<div class="cols-split"><div class="view">${tablas}</div><div class="sticky">${grafico}</div></div>
       ${panel("BOPREAL", table(BH, bop.map(bRow)) + `<div class="note">Serie 1 (A a D): vencimiento 31/10/27. Serie 2028 (A8, B8): sin flujos cargados, se muestra solo el precio.</div>`, { meta: m })}`;
   }
@@ -354,13 +397,14 @@
     const ref = `<div class="strip">${[["TAMAR", bc.tamar], ["BADLAR", bc.badlar], ["Plazo fijo 30 d", bc.plazo_fijo]].map(([n, v]) => `<span><b>${n}</b> ${v ? pct(v.valor) : "—"} TNA</span>`).join("")}
       ${(blk(P, "cauciones") || []).map((c) => `<span><b>Caución ${c.plazo} d</b> ${pct(c.tna)} TNA</span>`).join("")}
       <span><b>CER</b> ${fmt(bc.cer?.valor, 2)}</span><span><b>UVA</b> ${fmt(bc.uva?.valor, 2)}</span></div>`;
-    const fija = panel("Tasa fija · LECAP y BONCAP", table(["Ticker", "Tipo", "Vto.", "Días", "Precio", "Dif", "Pago final", "TEM", "TNA", "TIREA"],
-        pf.map((r) => fila(r, [tk(r), r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), pct(r.tna, 1), pct(r.tirea, 1)])))
+    const vcF = vsCurva(pf, "dias", "tem"), vcC = vsCurva(cer, "dur_mod", "tir");
+    const fija = panel("Tasa fija · LECAP y BONCAP", table(["Ticker", "Tipo", "Vto.", "Días", "Precio", "Dif", "Pago final", "TEM", `<span title="TEM de la letra menos la de la curva ajustada a su plazo, en pb de TEM. Positivo: rinde más que sus vecinos (barata)">vs curva</span>`, "TNA", "TIREA"],
+        pf.map((r) => fila(r, [tk(r), r.tipo, dmy(r.vto), r.dias, fmt(r.precio, 2), chg(r.d), fmt(r.pago_final, 2), pct(r.tem), vcCell(vcF[r.ticker]), pct(r.tna, 1), pct(r.tirea, 1)])))
       + (() => { const la = blk(D, "lecaps_auto") || {}, sinPago = pf.filter((r) => r.pago_final == null).map((r) => r.ticker);
-          return `<div class="note">Las letras nuevas se suman solas: el pago final se calcula con la TEM y la fecha de emisión de la ficha de BYMA (o del resultado de licitación de Finanzas).${(la.automaticas || []).length ? ` Calculadas automáticamente: ${esc(la.automaticas.join(", "))}.` : ""}${sinPago.length ? ` Todavía sin condiciones publicadas: ${esc(sinPago.join(", "))} (se reintenta cada día).` : ""}</div>`; })(), { lead: true, meta: m });
-    const cerT = panel("Bonos CER", table(["Ticker", "Vto.", "Días", "Precio", "Dif", "TIR real", "MD"],
-        cer.map((r) => fila(r, [tk(r) + (r.auto ? `<span class="sub" title="Dado de alta automáticamente con la ficha de BYMA">auto</span>` : ""), dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), fmt(r.dur_mod, 2)])))
-      + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono.</div>`, { meta: m });
+          return `<div class="note">"vs curva": pb de TEM por encima (verde, relativamente barata) o por debajo (roja, cara) de la curva ajustada. Las letras nuevas se suman solas: el pago final se calcula con la TEM y la fecha de emisión de la ficha de BYMA (o del resultado de licitación de Finanzas).${(la.automaticas || []).length ? ` Calculadas automáticamente: ${esc(la.automaticas.join(", "))}.` : ""}${sinPago.length ? ` Todavía sin condiciones publicadas: ${esc(sinPago.join(", "))} (se reintenta cada día).` : ""}</div>`; })(), { lead: true, meta: m });
+    const cerT = panel("Bonos CER", table(["Ticker", "Vto.", "Días", "Precio", "Dif", "TIR real", "vs curva", "MD"],
+        cer.map((r) => fila(r, [tk(r) + (r.auto ? `<span class="sub" title="Dado de alta automáticamente con la ficha de BYMA">auto</span>` : ""), dmy(r.vto), r.dias_vto ?? "—", fmt(r.precio, 2), chg(r.d), pct(r.tir), vcCell(vcC[r.ticker]), fmt(r.dur_mod, 2)])))
+      + `<div class="note">TIR real: precio deflactado por CER (t−10 hábiles) sobre el CER inicial de cada bono. "vs curva": pb de TIR por encima (verde, barato) o por debajo (rojo, caro) de la curva CER ajustada.</div>`, { meta: m });
     const cerCurva = panel("Curva CER", curve([{ name: "TIR real", cls: "s2", fit: true, points: cer.filter((r) => r.tir != null).map((r) => ({ x: r.dur_mod, y: r.tir, label: r.ticker, sinop: r.opero === false })) }],
         { xlabel: "Duration modificada (años)", ylabel: "TIR real %", title: "Curva CER" }), { src: "" });
     // inflación implícita vs REM (promedio de las medianas mensuales disponibles hasta el vencimiento)
@@ -479,7 +523,7 @@
     const H = ["Empresa", "Cap. US$ mM", "Precio US$", "Día", "Mes", "Año", "vs S&P mes", "vs S&P año", "vs sector año", "vs máx 52s", "Balance", "CCL CEDEAR"];
     const m = meta(P, "markets");
     return `${panel("Grandes del S&P 500", table(H, rows(mk.megacaps_eeuu)), { lead: true, meta: m })}
-      ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR o cotización en EE.UU. (Saudi Aramco en Riad, convertida a US$). Capitalización: cierre del día anterior. Cap.: capitalización en miles de millones de US$. Ordenadas por capitalización; hacé clic en un encabezado para reordenar. "vs." = cuánto le ganó (verde) o perdió (rojo) al S&P 500 o al ETF de su sector en EE.UU. (XLK tecnología, XLC comunicaciones, XLY consumo discrecional, XLP consumo básico, XLF financiero, XLV salud, XLE energía, XLB materiales, XLI industria).</div>`, { meta: m })}
+      ${panel("Gigantes fuera de EE.UU.", table(H, rows(mk.megacaps_global)) + `<div class="note">Precios en US$ de su ADR en EE.UU.; solo empresas con CEDEAR. Capitalización: cierre del día anterior. Cap.: capitalización en miles de millones de US$. Ordenadas por capitalización; hacé clic en un encabezado para reordenar. "vs." = cuánto le ganó (verde) o perdió (rojo) al S&P 500 o al ETF de su sector en EE.UU. (XLK tecnología, XLC comunicaciones, XLY consumo discrecional, XLP consumo básico, XLF financiero, XLV salud, XLE energía, XLB materiales, XLI industria).</div>`, { meta: m })}
       ${panel("Tu selección", table(H, rows(mk.empresas_seleccion)) + `<div class="note">Empresas elegidas a mano (Argentina, Brasil, tecno). Se editan en config/instruments.json → empresas_seleccion.</div>`, { meta: m })}`;
   }
 
@@ -506,7 +550,7 @@
     prox.Fed = ((blk(D, "fed") || {}).proximo_fomc || [])[0];
     const tbcT = panel("Tasas de política monetaria", table(["Banco central", "Tasa", "Qué tasa", "Dato del", "Próxima decisión"],
       tbc.map((b) => [esc(b.banco), pct(b.tasa, 2), `<span class="na">${esc(b.detalle)}</span>`, dmy(b.fecha), dmy(prox[b.banco] || (b.banco.startsWith("Banco Central de Brasil") ? prox["Banco Central de Brasil (Copom)"] : null))]), [0, 2]), { meta: meta(D, "tasas_bc") });
-    return `${bolsas()}${tbcT}<div class="cols-2">
+    return `${tbcT}<div class="cols-2">
       <div class="view">${panel("EE.UU.", g("indices_eeuu") + `<h3>Futuros</h3>` + g("futuros") + `<h3>Volatilidad</h3>` + g("volatilidad"), { lead: true, meta: m })}${panel("Sectores del S&P 500", g("sectores"), { meta: m })}${panel("Bonos globales (ETFs)", g("bonos_etf"), { meta: m })}</div>
       <div class="view">${panel("Resto del mundo", g("indices_mundo"), { meta: m })}${panel("Monedas", g("monedas"), { meta: m })}${panel("Commodities y cripto", g("commodities") + `<h3>Cripto</h3>` + g("cripto"), { meta: m })}</div></div>`;
   }
