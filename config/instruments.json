@@ -449,20 +449,6 @@
         "sector": "XLK"
       },
       {
-        "id": "ARAMCO",
-        "nombre": "Saudi Aramco",
-        "yahoo": "2222.SR",
-        "cedear": null,
-        "sector": "XLE"
-      },
-      {
-        "id": "TCEHY",
-        "nombre": "Tencent",
-        "yahoo": "TCEHY",
-        "cedear": null,
-        "sector": "XLC"
-      },
-      {
         "id": "ASML",
         "nombre": "ASML",
         "yahoo": "ASML",
@@ -496,13 +482,6 @@
         "yahoo": "AZN",
         "cedear": "AZN",
         "sector": "XLV"
-      },
-      {
-        "id": "LVMUY",
-        "nombre": "LVMH",
-        "yahoo": "LVMUY",
-        "cedear": null,
-        "sector": "XLY"
       }
     ],
     "empresas_seleccion": [
