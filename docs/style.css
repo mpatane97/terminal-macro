@@ -233,3 +233,7 @@ ul.mv li > span:last-child { white-space: nowrap; }
 .kpi > span:last-child { font: 12px var(--font-num); }
 .scroll.larga { max-height: 72vh; overflow: auto; }
 .scroll.larga thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); }
+/* volumen relativo alto (actividad inusual) y nombres de empresa recortados */
+.volalto { color: var(--warn); font-weight: 600; }
+.nom { display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.strip .spark { vertical-align: middle; margin-left: 4px; }

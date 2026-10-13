@@ -736,8 +736,8 @@
   }
 
   // Tabla estilo bonistas para bonos en dólares
-  const BH = ["Ticker", "Precio", "Dif", "TIR", `<span title="Cambio de la TIR en el último mes, en pb. Rojo: subió (el precio cayó)">TIR 1 m</span>`, `<span title="TIR del bono menos la de sus vecinos de duration, en pb. Positivo: rinde más (barato)">vs curva</span>`, "TNA", "MD", "Vol (M)", "Paridad", "VT", "Próx. pago", "Días vto."];
-  const bRow = (r) => fila(r, [tk(r), fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), dTasa(r.tir, (atras()[r.ticker] || {}).m), vcCell(r._vc), pct(r.tna, 1), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
+  const BH = ["Ticker", "Precio", "Dif", "TIR", `<span title="Cambio de la TIR en el último mes, en pb. Rojo: subió (el precio cayó)">TIR 1 m</span>`, `<span title="TIR del bono menos la de sus vecinos de duration, en pb. Positivo: rinde más (barato)">vs curva</span>`, "MD", "Vol (M)", "Paridad", "VT", "Próx. pago", "Días vto."];
+  const bRow = (r) => fila(r, [tk(r), fmt(r.usd, 2), chg(r.d), pct(r.tir, 1), dTasa(r.tir, (atras()[r.ticker] || {}).m), vcCell(r._vc), fmt(r.dur_mod, 2), fmt(r.vol, 1), pct(r.paridad, 1), fmt(r.vt, 2),
     r.dias_prox != null ? `${r.dias_prox} d<span class="sub">${fmt(r.monto_prox, 2)}</span>` : "—", r.dias_vto ?? "—"]);
 
   function viewArUSD() {
@@ -865,30 +865,41 @@
       <div class="cols-split"><div class="view">${beT}${dlT}</div><div class="view">${licT}${tam}</div></div>`;
   }
 
+  // "Central Costanera Sociedad Anonima" → "Central Costanera"
+  const nombreCorto = (n) => String(n || "").replace(/\s*(Sociedad An[oó]nima|S\.?\s?A\.?(\s?[ICFAG]\.?)*|S\.?A\.?U\.?|S\.?R\.?L\.?|Inc\.?|Ltd\.?)\s*$/i, "").replace(/\s*\((Argentina)\)\s*/i, " ").trim();
   function viewArAcciones() {
     const arm = blk(P, "ar_market") || {}, mk = blk(P, "markets") || {}, cot = (blk(P, "dolares") || {}).cotizaciones || [];
     const mv = merv(), ccl = byId(cot, "contadoconliqui").venta;
     const m = meta(P, "ar_market");
-    const head = `<div class="strip"><span><b>Merval</b> ${fmt(mv.last, 0)} ${chg(mv.d)}</span><span><b>Merval en USD (CCL)</b> ${mv.last && ccl ? fmt(mv.last / ccl, 0) : "—"}</span>
-      <span><b>Mes</b> ${chg(mv.m)}</span><span><b>Año</b> ${chg(mv.y)}</span></div>`;
+    const mu = (blk(D, "fichas_acciones") || {}).merval_usd, muHoy = mv.last && ccl ? mv.last / ccl : null;
+    // percentil con el valor de hoy contra la muestra de 12 meses (mínimo y máximo de la corrida diaria)
+    const muPos = mu && mu.pctl12 != null ? `<span title="Dónde está el Merval en dólares dentro de su rango de los últimos 12 meses (0 = mínimo, 100 = máximo). Rango: ${fmt(mu.min12, 0)} – ${fmt(mu.max12, 0)}"><b>Percentil 12 m</b> ${fmt(mu.pctl12, 0)} <span class="na">(${fmt(mu.min12, 0)} – ${fmt(mu.max12, 0)})</span> ${spark(mu.serie)}</span>` : "";
+    const head = `<div class="strip"><span><b>Merval</b> ${fmt(mv.last, 0)} ${chg(mv.d)} <span class="na">mes</span> ${chg(mv.m)} <span class="na">año</span> ${chg(mv.y)}</span>
+      <span><b>Merval en USD (CCL)</b> ${muHoy ? fmt(muHoy, 0) : "—"}${mu && mu.d_mes_pct != null ? ` <span class="na">mes</span> ${chg(mu.d_mes_pct, 1)}` : ""}</span>${muPos}</div>`;
+    // monto del día en dólares CCL y volumen relativo (hoy contra el promedio de las 20 ruedas anteriores)
+    const montoHoy = (r) => (r.vol && r.precio && ccl ? r.vol * r.precio / ccl : null);
+    const montoTxt = (r) => { const v = montoHoy(r); return v == null ? "—" : `US$ ${fmt(v / 1e6, v < 1e5 ? 2 : 1)} M`; };
+    const volRel = (r) => { const v = montoHoy(r), p = r.monto_prom && ccl ? r.monto_prom / ccl : null; if (v == null || !p) return `<span class="na">—</span>`;
+      const x = v / p; return `<span class="${x >= 2 ? "volalto" : x < 0.5 ? "na" : ""}" title="Monto de hoy ÷ promedio de las 20 ruedas anteriores (US$ ${fmt(p / 1e6, 1)} M)">${fmt(x, 1)}×</span>`; };
+    const srcAcc = m.source ? `${esc(m.source.split(";")[0])} · ${hhmm(m.updated)}` : "";
     const pl = arm.panel_lider || [], secs = arm.sectores || {};
     const secDe = (t) => Object.keys(secs).find((k) => secs[k].includes(t));
     // referencia de sector: promedio de los demás papeles del mismo sector (sin contar al propio)
     const promSector = (t, k) => { const s = secDe(t); if (!s || s === "Otros") return null; const v = pl.filter((r) => r.ticker !== t && secs[s].includes(r.ticker) && r[k] != null).map((r) => r[k]); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
-    const panelT = panel("Panel líder", table(["Ticker", "Sector", "Precio", "Día", "Sem", "Mes", "Año", "vs. Merval (mes)", "vs. sector (mes)", "vs. Merval (año)"],
+    const panelT = panel("Panel líder", table(["Ticker", "Sector", "Precio", "Día", "Sem", "Mes", "Año", "vs. Merval (mes)", "vs. sector (mes)", "vs. Merval (año)", "Monto hoy", "Vol. rel."],
         pl.map((r) => Object.assign(fila(r, [tk(r), `<span class="na">${esc(secDe(r.ticker) || "—")}</span>`, fmt(r.precio, 2), chg(r.d), chg(r.w), chg(r.m), chg(r.y),
-          chg(rel(r.m, mv.m)), chg(rel(r.m, promSector(r.ticker, "m"))), chg(rel(r.y, mv.y))]), { acc: r.ticker, cls: `${r.opero === false ? "sinop " : ""}clic` })), [1])
-      + `<div class="note">"vs." = cuánto le ganó (verde) o perdió (rojo) cada acción a su referencia en el período, en pesos. Sector: promedio simple de los otros papeles del panel del mismo sector.</div>`, { lead: true, meta: m });
+          chg(rel(r.m, mv.m)), chg(rel(r.m, promSector(r.ticker, "m"))), chg(rel(r.y, mv.y)), montoTxt(r), volRel(r)]), { acc: r.ticker, cls: `${r.opero === false ? "sinop " : ""}clic` })), [1])
+      + `<div class="note">"vs." = cuánto le ganó (verde) o perdió (rojo) cada acción a su referencia en el período, en pesos. Sector: promedio simple de los otros papeles del panel del mismo sector. Monto hoy: en dólares CCL. Vol. rel.: monto de hoy dividido el promedio de las 20 ruedas anteriores; resaltado desde 2× (actividad inusual), atenuado por debajo de 0,5×.</div>`, { lead: true, meta: m, src: srcAcc });
     const al = arm.adr_local || {};
     const adrs = panel("ADRs en Nueva York", table(["", "USD", "Día", "Sem", "Mes", "Año"], priceRows(mk.adrs, ["d", "w", "m", "y"])
       .map((fl, k) => { const loc = al[(mk.adrs[k] || {}).id]; return loc ? Object.assign(fl, { acc: loc, cls: "clic" }) : fl; }))
       + `<div class="note">Tocá un ADR para ver la ficha de la acción local.</div>`, { meta: meta(P, "markets") });
     const pg = arm.panel_general || [];
-    const genT = panel("Panel general · las más operadas", table(["Ticker", "Empresa", "Precio", "Día", "Mes", "vs. Merval", "Monto/día"],
-        pg.map((r) => Object.assign(fila(r, [tk(r), `<span class="na">${esc(r.nombre || "")}</span>`, fmt(r.precio, 2), chg(r.d), chg(r.m), chg(rel(r.m, mv.m)),
-          r.monto_prom && ccl ? `US$ ${fmt(r.monto_prom / ccl / 1e6, 1)} M` : "—"]), { acc: r.ticker, cls: `${r.opero === false ? "sinop " : ""}clic` })), [1])
-      + `<div class="note">Las ${pg.length || 15} acciones fuera del panel líder con más monto operado por día (promedio de las últimas 20 ruedas, en dólares CCL). "vs. Merval": en el mes. La lista se actualiza sola cada día.</div>`, { meta: m });
-    return `${rueda()}${head}${panelT}<div class="cols-2">${genT}${adrs}</div>`;
+    const genT = panel("Panel general · más operadas", table(["Ticker", "Empresa", "Precio", "Día", "Mes", "vs. Merval", "Monto", "Vol. rel."],
+        pg.map((r) => Object.assign(fila(r, [tk(r), r.nombre ? `<span class="na nom" title="${esc(r.nombre)}">${esc(nombreCorto(r.nombre))}</span>` : `<span class="na">—</span>`, fmt(r.precio, 2), chg(r.d), chg(r.m), chg(rel(r.m, mv.m)),
+          montoTxt(r), volRel(r)]), { acc: r.ticker, cls: `${r.opero === false ? "sinop " : ""}clic` })), [1])
+      + `<div class="note">Las ${pg.length || 15} acciones fuera del panel líder con más monto operado (promedio de las últimas 20 ruedas). Monto hoy en dólares CCL; Vol. rel.: hoy contra ese promedio. "vs. Merval": en el mes. La lista se actualiza sola cada día.</div>`, { meta: m, src: srcAcc });
+    return `${rueda()}${head}${panelT}<div class="cols-split">${genT}${adrs}</div>`;
   }
 
   function viewEmpresas() {
