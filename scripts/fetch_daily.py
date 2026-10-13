@@ -526,7 +526,7 @@ def _sorpresas_us():
     hist_f = HIST / "consenso_us.json"
     cons = read_json(hist_f, {}) or {}
     try:  # se guarda el consenso de la semana; Forex Factory no publica el dato real
-        for r in http_get("https://nfs.faireconomy.media/ff_calendar_thisweek.json"):
+        for r in _ff_semana():
             if r.get("country") == "USD" and r.get("title") in SORPRESA_US and _num_ff(r.get("forecast")) is not None:
                 cons[f"{r['title']}|{r['date'][:10]}"] = {"esperado": _num_ff(r["forecast"]), "texto": r["forecast"], "fecha": r["date"]}
     except Exception as e:  # noqa: BLE001
@@ -650,8 +650,21 @@ def megacaps_info():
     return out, "Yahoo Finance (yfinance), miles de millones de USD"
 
 
+_FF_LOCK = __import__("threading").Lock()
+_FF = {}
+
+
+def _ff_semana():
+    """Calendario de la semana de Forex Factory, pedido una sola vez por corrida: lo usan tres bloques en
+    paralelo y el sitio limita los pedidos repetidos (responde 429)."""
+    with _FF_LOCK:
+        if "rows" not in _FF:
+            _FF["rows"] = http_get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", retries=3)
+        return _FF["rows"]
+
+
 def calendar_intl():
-    rows = http_get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
+    rows = _ff_semana()
     nombres = {"EUR": "Eurozona", "GBP": "Reino Unido", "JPY": "Japón", "CNY": "China"}
     datos = [{"fecha": r.get("date"), "pais": nombres[r["country"]], "evento": r.get("title"),
               "esperado": r.get("forecast") or None, "previo": r.get("previous") or None}
@@ -667,7 +680,7 @@ def calendar_intl():
 # ---------- Calendario y earnings ----------
 
 def calendar_us():
-    rows = http_get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
+    rows = _ff_semana()
     out = [{"fecha": r.get("date"), "evento": r.get("title"), "impacto": r.get("impact"),
             "esperado": r.get("forecast") or None, "previo": r.get("previous") or None}
            for r in rows if r.get("country") == "USD" and r.get("impact") in ("High", "Medium")
