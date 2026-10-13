@@ -324,6 +324,65 @@
       hoy: (x) => [tramo(x.valor, [[950, "Precio bajo: menos dólares de la cosecha."], [1200, "Precio medio."], [1e9, "Precio alto: más ingreso de dólares por exportaciones del agro."]]), x.d_mes_pct != null ? `En el mes ${x.d_mes_pct > 0 ? "subió" : "bajó"} ${fmt(Math.abs(x.d_mes_pct), 1)}%.` : ""],
       implica: () => "Pesa sobre la oferta de dólares (sobre todo entre abril y julio), las reservas del BCRA y las acciones del agro como Cresud." },
   };
+  // "Qué favorece y qué presiona": hacia dónde empuja el contexto actual de cada indicador (no es una recomendación)
+  const SESGO = {
+    rp: (x) => (x.valor >= 500 || (x.d_mes ?? 0) > 50
+      ? { p: ["Bonos largos en dólares (GD35, GD41, GD46): más duration, más caída si sigue subiendo", "Acciones argentinas, sobre todo bancos"], f: ["Bonos cortos en dólares (menos sensibles a la tasa)", "Coberturas: dólar linked o dólar futuro", "Los papeles que la columna \"vs curva\" marca como baratos"], c: "Una vuelta sostenida por debajo de 500 pb o una baja de más de 50 pb en el mes cambiaría la lectura." }
+      : { f: ["Bonos largos en dólares: si el riesgo país sigue bajando, son los que más suben", "Bancos y acciones argentinas en general"], p: ["Coberturas y posiciones defensivas: pierden atractivo relativo"], c: "Una suba de más de 100 pb en el mes o volver por encima de 600 pb cambiaría la lectura." }),
+    brecha: (x) => (x.valor >= 15 || (x.d_mes ?? 0) > 3
+      ? { f: ["CEDEARs y activos valuados en CCL (suben en pesos con la brecha)"], p: ["Carry en pesos: una brecha que se amplía suele anticipar presión sobre el oficial"], c: "Que la brecha vuelva a menos de 10% cambiaría la lectura." }
+      : { f: ["Carry en pesos (LECAP, caución): el mercado no anticipa saltos del oficial"], p: ["Coberturas cambiarias: hoy se pagan caras en relación al riesgo"], c: "Una brecha que pase de 15% o suba más de 3 puntos en el mes cambiaría la lectura." }),
+    dist_techo: (x) => (x.valor < 10
+      ? { p: ["LECAP y BONCAP: poco colchón si el dólar sube"], f: ["Coberturas: dólar futuro, dólar linked, dólar MEP"], c: "Que el mayorista se aleje a más de 15% del techo cambiaría la lectura." }
+      : { f: ["Carry en pesos: el dólar puede subir bastante sin que la letra pierda (mirá el dólar de equilibrio vs. techo)"], p: ["Coberturas cambiarias de corto plazo: rinden menos mientras el dólar esté lejos del techo"], c: "Que la distancia baje de 10% cambiaría la lectura." }),
+    reservas: (x) => ((x.d_mes ?? 0) < 0
+      ? { p: ["Bonos en dólares (AL/GD) si la caída no se explica por un pago de deuda"], f: ["Coberturas cambiarias"], c: "Que las reservas vuelvan a subir de forma sostenida cambiaría la lectura." }
+      : { f: ["Bonos en dólares (AL/GD): más respaldo para los pagos"], p: ["Coberturas cambiarias (menos necesarias)"], c: "Una caída sostenida de reservas sin pagos de deuda que la expliquen cambiaría la lectura." }),
+    compras: (x) => (x.valor > 0
+      ? { f: ["Bonos en dólares y riesgo país: la acumulación de reservas los sostiene"], p: ["Coberturas cambiarias de corto plazo"], c: "Que el BCRA pase a vender dólares cambiaría la lectura." }
+      : { p: ["Bonos en dólares y carry en pesos: el BCRA está usando reservas para contener el dólar"], f: ["Coberturas cambiarias"], c: "Que el BCRA vuelva a comprar cambiaría la lectura." }),
+    tasa_real: (x) => (x.valor >= 0.3
+      ? { f: ["LECAP y BONCAP de tasa fija", "Caución en pesos para el corto plazo"], p: ["Comprar dólares como inversión de corto plazo (rinde menos que la tasa en pesos si el dólar no salta)"], c: "Una tasa real negativa, o el dólar acercándose al techo de la banda, cambiaría la lectura." }
+      : x.valor >= 0 ? { f: ["Tasa fija, pero con poco margen sobre la inflación esperada"], p: ["Tasa fija larga: queda expuesta si la inflación sorprende al alza"], c: "Que la tasa real supere 0,5% mensual, o pase a negativa, cambiaría la lectura." }
+      : { f: ["Bonos CER (ajustan por inflación)", "Dólar linked o dólar"], p: ["LECAP y BONCAP: pierden contra la inflación esperada"], c: "Que la tasa real vuelva a positiva cambiaría la lectura." }),
+    ust10: (x) => (x.valor >= 4.5 || (x.d_mes ?? 0) > 0.25
+      ? { p: ["Bonos largos (de EE.UU. y argentinos)", "Acciones de crecimiento y de mayor valuación (tecnológicas)"], f: ["Liquidez y bonos cortos en dólares: pagan bien sin riesgo de duration"], c: "Que el 10 años baje de 4,5% o caiga más de 25 pb en el mes cambiaría la lectura." }
+      : { f: ["Bonos largos y acciones de crecimiento", "Emergentes: menor costo de financiamiento"], p: ["Liquidez en dólares (rinde menos)"], c: "Que el 10 años vuelva a subir por encima de 4,5% cambiaría la lectura." }),
+    hy: (x) => (x.valor >= 450 || (x.pctl ?? 0) >= 80 || (x.d_mes ?? 0) > 75
+      ? { p: ["Deuda emergente y bonos argentinos", "Acciones, sobre todo las más volátiles"], f: ["Calidad: Treasuries cortos, empresas con balance sólido"], c: "Que el spread vuelva a bajar de forma sostenida cambiaría la lectura." }
+      : { f: ["Activos de riesgo: deuda emergente, bonos argentinos, acciones"], p: ["Posiciones muy defensivas (pierden rendimiento relativo)"], c: "Una suba de más de 75 pb en el mes cambiaría la lectura." }),
+    ig: (x) => (x.valor >= 130 || (x.pctl ?? 0) >= 80
+      ? { p: ["Crédito corporativo en general"], f: ["Treasuries y liquidez"], c: "Que el spread baje de 100 pb cambiaría la lectura." }
+      : { f: ["Crédito corporativo"], p: [], c: "Que el spread pase de 150 pb cambiaría la lectura." }),
+    real10: (x) => (x.valor >= 2
+      ? { p: ["Oro", "Acciones de crecimiento", "Emergentes"], f: ["Bonos indexados (TIPS) y liquidez en dólares"], c: "Que la tasa real baje de 1,5% cambiaría la lectura." }
+      : { f: ["Oro, acciones de crecimiento y emergentes"], p: ["Liquidez en dólares (rinde poco en términos reales)"], c: "Que la tasa real suba por encima de 2% cambiaría la lectura." }),
+    be10: (x) => (x.valor >= 2.5
+      ? { p: ["Bonos nominales largos"], f: ["Bonos indexados (TIPS)", "Commodities"], c: "Que la inflación esperada vuelva a 2-2,5% cambiaría la lectura." }
+      : x.valor < 2 ? { f: ["Bonos nominales largos (el mercado espera desinflación o desaceleración)"], p: ["Commodities y cíclicas"], c: "Que vuelva por encima de 2% cambiaría la lectura." }
+      : { f: [], p: [], c: "Una salida del rango 2-2,5% cambiaría la lectura." }),
+    pend: (x) => (x.valor < 0
+      ? { p: ["Acciones cíclicas y bancos (margen financiero comprimido)"], f: ["Sectores defensivos y empresas de calidad"], c: "Que la curva vuelva a pendiente positiva cambiaría la lectura (aunque históricamente la recesión llega después de desinvertirse)." }
+      : { f: ["Bancos (mejor margen financiero)"], p: [], c: "Una inversión de la curva cambiaría la lectura." }),
+    nfci: (x) => (x.valor > -0.3 && (x.d_mes ?? 0) > 0.1
+      ? { p: ["Activos de riesgo: las condiciones financieras se endurecen"], f: ["Liquidez y calidad"], c: "Que el índice vuelva a bajar cambiaría la lectura." }
+      : x.valor <= -0.3 ? { f: ["Activos de riesgo: el crédito fluye con facilidad"], p: [], c: "Un salto del índice hacia arriba cambiaría la lectura." }
+      : { f: [], p: [], c: "Un salto del índice hacia arriba sería una señal temprana de estrés." }),
+    dxy: (x) => (x.valor >= 103 || (x.d_mes_pct ?? 0) > 2
+      ? { p: ["Emergentes, Brasil (real) y commodities", "Ingreso de dólares a Argentina por exportaciones"], f: ["Liquidez en dólares"], c: "Que el DXY baje de 100 cambiaría la lectura." }
+      : { f: ["Emergentes y commodities"], p: [], c: "Que el DXY suba por encima de 105 cambiaría la lectura." }),
+    vix: (x) => (x.valor >= 25
+      ? { p: ["Acciones en el corto plazo, sobre todo argentinas (más volátiles)"], f: ["Calidad y liquidez; para el largo plazo, los picos de VIX suelen ser zona de oportunidad"], c: "Que el VIX vuelva por debajo de 20 cambiaría la lectura." }
+      : x.valor < 15 ? { f: ["Activos de riesgo; además, protegerse (opciones) es barato"], p: ["Ojo con la complacencia: los períodos de VIX muy bajo suelen terminar con saltos"], c: "Un salto por encima de 20 cambiaría la lectura." }
+      : { f: [], p: [], c: "Un salto por encima de 25 sería señal de estrés." }),
+    brent: (x) => (x.valor >= 80
+      ? { f: ["YPF, Vista, Pampa y TGS", "Balanza comercial argentina (más dólares por exportaciones de energía)"], p: ["Inflación global (dificulta las bajas de tasa de la Fed)"], c: "Que el Brent baje de 70 cambiaría la lectura." }
+      : { p: ["Petroleras argentinas (YPF, Vista)", "Inversión en Vaca Muerta"], f: ["Inflación global más baja"], c: "Que el Brent suba por encima de 80 cambiaría la lectura." }),
+    soja: (x) => (x.valor >= 1150
+      ? { f: ["Oferta de dólares de la cosecha y reservas del BCRA", "Acciones del agro (Cresud)"], p: [], c: "Que la soja baje de 1.000 cambiaría la lectura." }
+      : { p: ["Ingreso de dólares del agro y reservas"], f: [], c: "Que la soja suba por encima de 1.150 cambiaría la lectura." }),
+  };
+
   function abrirIndicador(id) {
     const def = INDIC[id], x = datosIndicador(id); if (!def) return;
     const box = $("#ficha");
@@ -349,6 +408,10 @@
       <h2>${esc(def.nombre)}</h2><div class="strip">${strip.map(([k, val]) => `<span><b>${k}</b> ${val}</span>`).join("")}</div>${graf}
       <h3>Qué dice hoy</h3><ul class="lectura">${hoy.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
       <h3>Qué implica para tus inversiones</h3><p class="ind-txt">${esc(def.implica())}</p>
+      ${(() => { const sg = SESGO[id] ? SESGO[id](x) : null; if (!sg || (!sg.f.length && !sg.p.length)) return sg && sg.c ? `<p class="ind-txt na">${esc(sg.c)}</p>` : "";
+        const lst = (a) => (a.length ? `<ul>${a.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : `<div class="na">—</div>`);
+        return `<h3>Qué favorece y qué presiona hoy</h3><div class="sesgo"><div class="fav"><b>Favorece</b>${lst(sg.f)}</div><div class="pre"><b>Presiona</b>${lst(sg.p)}</div></div>
+          <p class="ind-txt na">${esc(sg.c)}</p>`; })()}
       <h3>Qué es</h3><p class="ind-txt">${esc(def.que)}</p>
       <h3>Cómo se lee</h3><p class="ind-txt">${esc(def.leer)}</p>
       <div class="note">Interpretación armada con reglas fijas y los datos del momento; es orientativa, no una recomendación.</div></div>`;
@@ -393,6 +456,17 @@
       const r = by(id); if (r.last == null) continue;
       con({ DXY: "dxy", VIX: "vix", BRENT: "brent", SOJA: "soja" }[id], () => add(nombre, fmt(r.last, dec(r.last)), (inv ? chgInv : chg)(r.m), r.p12, r.spark, dir, nota));
     }
+    // balance del contexto: cada indicador suma +1 (favorable), 0 (neutral) o −1 (desfavorable) según su nivel
+    const senal = [];
+    const sen = (nombre, p, dir) => { if (p == null || !dir) return senal.push([nombre, 0]); const n = p >= 80 ? 1 : p <= 20 ? -1 : 0; senal.push([nombre, n === 0 ? 0 : (n === 1) === (dir === "bueno") ? 1 : -1]); };
+    sen("riesgo país", rc.pctl12, "malo"); sen("brecha", b.pctl12, "malo"); sen("distancia al techo", dt.pctl12, "bueno"); sen("reservas", rs.pctl12, "bueno"); sen("compras del BCRA", cp.pctl12, "bueno");
+    senal.push(["tasa real en pesos", rf && rf.real != null ? (rf.real > 1 ? 1 : rf.real < 0 ? -1 : 0) : 0]);
+    sen("Treasury 10 años", t10.pctl12, "malo"); if (hy) sen("spread high yield", hy.pctl12, "malo");
+    for (const [id, nombre, dir] of [["DXY", "DXY", "malo"], ["VIX", "VIX", "malo"], ["BRENT", "Brent", "bueno"], ["SOJA", "soja", "bueno"]]) { const r = by(id); if (r.last != null) sen(nombre, r.p12, dir); }
+    const fav = senal.filter((x) => x[1] > 0).map((x) => x[0]), des = senal.filter((x) => x[1] < 0).map((x) => x[0]), neu = senal.length - fav.length - des.length;
+    const tono = fav.length - des.length >= 3 ? ["verde", "Contexto favorable"] : des.length - fav.length >= 3 ? ["rojo", "Contexto desfavorable"] : ["amarillo", "Contexto mixto"];
+    const balance = `<div class="balance">${chip(tono[0], tono[1])} <span><b class="up">${fav.length} favorables</b> · ${neu} neutrales · <b class="down">${des.length} desfavorables</b></span>
+      ${fav.length ? `<span class="na">A favor: ${esc(fav.join(", "))}.</span>` : ""}${des.length ? `<span class="na">En contra: ${esc(des.join(", "))}.</span>` : ""}</div>`;
     // lectura: lo que está en zona de alerta
     const alertas = [];
     if (rc.pctl12 >= 80) alertas.push(`riesgo país en la parte alta de su rango del año (${fmt(rp.last ?? rc.valor, 0)} pb)`);
@@ -402,8 +476,8 @@
     if (t10.pctl12 >= 90) alertas.push(`Treasury a 10 años en máximos del año (${pct(t10.valor, 2)})`);
     if (by("VIX").last > 25) alertas.push(`VIX en zona de estrés (${fmt(by("VIX").last, 1)})`);
     const lect = alertas.length ? `<div class="note"><b>A vigilar:</b> ${esc(alertas.join("; "))}.</div>` : `<div class="note">Ningún indicador en zona de alerta.</div>`;
-    return panel("Tablero de riesgo", table(["Indicador", "Valor", "Cambio 1 mes", "Percentil 12 m", "6 meses", "Nivel"], F, [0]) + lect
-      + `<div class="note">Percentil: dónde está hoy dentro de los últimos 12 meses (0 = mínimo, 100 = máximo). Nivel: alto (percentil 80 o más), bajo (20 o menos) o medio; en rojo cuando es una mala señal (por ejemplo, riesgo país alto o reservas bajas) y en verde cuando es buena. Cambios en rojo: movimiento desfavorable. Tocá un indicador para ver qué es y cómo interpretarlo hoy.</div>`, { lead: true, src: "" });
+    return panel("Tablero de riesgo", balance + table(["Indicador", "Valor", "Cambio 1 mes", "Percentil 12 m", "6 meses", "Nivel"], F, [0]) + lect
+      + `<div class="note">Percentil: dónde está hoy dentro de los últimos 12 meses (0 = mínimo, 100 = máximo). Nivel: alto (percentil 80 o más), bajo (20 o menos) o medio; en rojo cuando es una mala señal (por ejemplo, riesgo país alto o reservas bajas) y en verde cuando es buena. Cambios en rojo: movimiento desfavorable. Balance: cuenta cuántos indicadores están en una zona favorable o desfavorable para activos argentinos; no pondera ni predice, resume. Tocá un indicador para ver qué es, cómo interpretarlo hoy y qué favorece o presiona.</div>`, { lead: true, src: "" });
   }
 
   function viewResumen() {

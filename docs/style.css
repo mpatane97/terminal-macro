@@ -218,3 +218,9 @@ svg.spark polyline { stroke: currentColor; } svg.spark { vertical-align: middle;
 ul.mv li > span:last-child { white-space: nowrap; }
 .chip.neutro { color: var(--muted); border-color: var(--line); }
 .ind-txt { margin: 4px 12px 8px; line-height: 1.5; }
+.sesgo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 12px 6px; }
+.sesgo > div { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
+.sesgo .fav b { color: var(--up); } .sesgo .pre b { color: var(--down); }
+.sesgo ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.45; }
+@media (max-width: 720px) { .sesgo { grid-template-columns: 1fr; } }
+.balance { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 12px 4px; font-size: 13px; }
