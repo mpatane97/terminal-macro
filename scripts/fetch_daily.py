@@ -291,7 +291,9 @@ def ipc():
     js = http_get("https://apis.datos.gob.ar/series/api/series/",
                   params={"ids": f"{base}:percent_change,{base}:percent_change_a_year_ago", "start_date": start,
                           "format": "json", "limit": 1000})
-    rows = [r for r in js["data"] if r[1] is not None]
+    rows = [r for r in js.get("data") or [] if r[1] is not None]
+    if len(rows) < 2:
+        raise RuntimeError("datos.gob.ar devolvió la serie del EMAE vacía (suele ser momentáneo)")
     last, prev = rows[-1], rows[-2]
     return {"periodo": last[0][:7], "mensual": last[1] * 100, "interanual": (last[2] or 0) * 100 if last[2] is not None else None,
             "mensual_anterior": prev[1] * 100}, "INDEC vía datos.gob.ar (oficial)"
@@ -400,7 +402,9 @@ def emae():
     js = http_get("https://apis.datos.gob.ar/series/api/series/",
                   params={"ids": f"143.3_NO_PR_2004_A_31:percent_change,143.3_NO_PR_2004_A_21:percent_change_a_year_ago",
                           "start_date": (today_ar() - timedelta(days=500)).isoformat(), "format": "json", "limit": 1000})
-    rows = [r for r in js["data"] if r[1] is not None]
+    rows = [r for r in js.get("data") or [] if r[1] is not None]
+    if len(rows) < 2:
+        raise RuntimeError("datos.gob.ar devolvió la serie del EMAE vacía (suele ser momentáneo)")
     last, prev = rows[-1], rows[-2]
     return {"periodo": last[0][:7], "mensual_desest": last[1] * 100, "interanual": last[2] * 100 if last[2] is not None else None,
             "mensual_anterior": prev[1] * 100}, "INDEC vía datos.gob.ar (oficial)"
