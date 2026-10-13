@@ -192,6 +192,76 @@
       <div class="note">Ordenados por movimiento inusual: "3,0×" = se movió 3 veces lo que se mueve en un día normal (desvío de sus últimas 60 ruedas).</div></section>`;
   }
 
+  /* ---------- Carry en pesos: cuánto paga quedarse en pesos y contra qué dólar se pierde ---------- */
+  function carryPesos() {
+    const arm = blk(P, "ar_market") || {}, rem = blk(D, "rem") || {}, remM = rem.ipc_mensual || [];
+    const cot = (blk(P, "dolares") || {}).cotizaciones || [], ban = blk(D, "bandas"), ipm = (blk(D, "ipc") || {}).mensual;
+    const a35 = byId(cot, "mayorista").venta;
+    const remHasta = (vto) => { const v = remM.filter((r) => r.mes <= vto.slice(0, 7)); return v.length ? v.reduce((a, r) => a + r.mediana, 0) / v.length : null; };
+    const techoAl = (dias) => (ban && ban.techo && ipm != null ? ban.techo * Math.pow(1 + ipm / 100, dias / 30.4) : null);
+    const futPts = ((blk(D, "futuros_dolar") || {}).contratos || []).filter((c) => c.precio && c.vto)
+      .map((c) => ({ x: Math.round((new Date(c.vto + "T12:00:00-03:00") - Date.now()) / 864e5), y: c.precio })).filter((p) => p.x > 0).sort((a, b) => a.x - b.x);
+    const futAl = (d) => { for (let i = 0; i < futPts.length - 1; i++) { const a = futPts[i], b = futPts[i + 1]; if (d >= a.x && d <= b.x) return a.y + (b.y - a.y) * (d - a.x) / (b.x - a.x); } return null; };
+    const mens = (ratio, dias) => (ratio && dias > 0 ? (Math.pow(ratio, 30 / dias) - 1) * 100 : null);
+    const rows = (arm.pesos_fija || []).filter((r) => r.precio && r.pago_final && r.tem != null && r.dias >= 20).sort((a, b) => a.dias - b.dias).map((r) => {
+      const inf = remHasta(r.vto), real = inf != null ? ((1 + r.tem / 100) / (1 + inf / 100) - 1) * 100 : null;
+      const eq = a35 ? a35 * r.pago_final / r.precio : null, fu = futAl(r.dias), te = techoAl(r.dias);
+      const devFut = fu && a35 ? mens(fu / a35, r.dias) : null, devTecho = te && a35 ? mens(te / a35, r.dias) : null;
+      return { r, inf, real, eq, fu, te, devFut, devTecho, vsFut: eq && fu ? (eq / fu - 1) * 100 : null, vsTecho: eq && te ? (eq / te - 1) * 100 : null };
+    });
+    const ref = [...rows].sort((a, b) => Math.abs(a.r.dias - 90) - Math.abs(b.r.dias - 90))[0] || null;   // letra de referencia: ~3 meses
+    return { rows, ref, a35, techoHoy: ban?.techo, distTecho: ban?.techo && a35 ? (ban.techo / a35 - 1) * 100 : null, ipm };
+  }
+
+  /* ---------- Tablero de riesgo (Resumen): indicadores clave con su contexto de 12 meses ---------- */
+  function tableroRiesgo() {
+    const mk = blk(P, "markets") || {}, all = Object.values(mk).flat(), by = (id) => all.find((x) => x.id === id) || {};
+    const ta = blk(D, "tablero_ar") || {}, rp = blk(D, "riesgo_pais") || {}, ts = blk(D, "treasuries") || {};
+    const cf = Object.fromEntries((blk(D, "condiciones_fin") || []).map((r) => [r.id, r]));
+    const br = (blk(P, "dolares") || {}).brechas || {}, c = carryPesos();
+    // dir: "malo" si subir es una mala señal, "bueno" si es buena, null si depende
+    const estado = (p, dir) => {
+      if (p == null) return `<span class="na">—</span>`;
+      const nivel = p >= 80 ? "Alto" : p <= 20 ? "Bajo" : "Medio";
+      if (!dir || nivel === "Medio") return chip(dir ? "amarillo" : "neutro", nivel);
+      return chip((nivel === "Alto") === (dir === "malo") ? "rojo" : "verde", nivel);
+    };
+    const F = [];
+    const add = (nombre, valor, cambio, p, serie, dir, nota) => F.push([`${nombre}${nota ? `<span class="sub">${nota}</span>` : ""}`, `<b>${valor}</b>`, cambio, p != null ? fmt(p, 0) : "—", spark(serie, dir === "malo"), estado(p, dir)]);
+    const rc = rp.ctx || {};
+    add("Riesgo país", `${fmt(rp.last ?? rc.valor, 0)} pb`, chgInv(rc.d_mes, 0, " pb"), rc.pctl12, rc.serie, "malo");
+    const b = ta.brecha || {};
+    add("Brecha CCL / oficial", pct(br.ccl_a3500 ?? b.valor, 1), chgInv(b.d_mes, 1, " pp"), b.pctl12, b.serie, "malo");
+    const dt = ta.dist_techo || {};
+    add("Distancia al techo de la banda", pct(c.distTecho ?? dt.valor, 1), chg(dt.d_mes, 1, " pp"), dt.pctl12, dt.serie, "bueno", "colchón del mayorista");
+    const rs = ta.reservas || {};
+    add("Reservas brutas BCRA", rs.valor != null ? `US$ ${fmt(rs.valor / 1000, 1)} mil M` : "—", chg(rs.d_mes, 0, " M"), rs.pctl12, rs.serie, "bueno");
+    const cp = ta.compras20 || {};
+    add("Compras del BCRA", cp.valor != null ? `US$ ${fmt(cp.valor, 0)} M` : "—", chg(cp.d_mes, 0, " M"), cp.pctl12, cp.serie, "bueno", "últimas 20 ruedas");
+    const rf = c.ref;
+    F.push([`Tasa real en pesos<span class="sub">${rf ? `${esc(rf.r.ticker)} vs. REM, mensual` : ""}</span>`, `<b>${rf && rf.real != null ? pct(rf.real, 2) : "—"}</b>`, `<span class="na">—</span>`, "—", "",
+      rf && rf.real != null ? (rf.real > 1 ? chip("verde", "Alta") : rf.real >= 0 ? chip("amarillo", "Positiva") : chip("rojo", "Negativa")) : `<span class="na">—</span>`]);
+    const t10 = ts.ctx_10y || {};
+    add("Treasury 10 años", pct(t10.valor, 2), chgInv(t10.d_mes != null ? t10.d_mes * 100 : null, 0, " pb"), t10.pctl12, t10.serie, "malo");
+    const hy = cf.BAMLH0A0HYM2;
+    if (hy) add("Spread high yield EE.UU.", `${fmt(hy.valor, 0)} pb`, chgInv(hy.d_mes, 0, " pb"), hy.pctl12, hy.serie, "malo");
+    for (const [id, nombre, dir, inv, nota] of [["DXY", "Dólar global (DXY)", "malo", true, ""], ["VIX", "VIX", "malo", true, ""], ["BRENT", "Petróleo Brent", "bueno", false, "bueno para AR"], ["SOJA", "Soja", "bueno", false, "bueno para AR"]]) {
+      const r = by(id); if (r.last == null) continue;
+      add(nombre, fmt(r.last, dec(r.last)), (inv ? chgInv : chg)(r.m), r.p12, r.spark, dir, nota);
+    }
+    // lectura: lo que está en zona de alerta
+    const alertas = [];
+    if (rc.pctl12 >= 80) alertas.push(`riesgo país en la parte alta de su rango del año (${fmt(rp.last ?? rc.valor, 0)} pb)`);
+    if (c.distTecho != null && c.distTecho < 5) alertas.push(`el mayorista a ${fmt(c.distTecho, 1)}% del techo de la banda`);
+    if (rf && rf.real != null && rf.real < 0) alertas.push(`tasa real en pesos negativa (${pct(rf.real, 2)} mensual)`);
+    if (hy && hy.pctl12 >= 80) alertas.push(`crédito global tenso (spread high yield en percentil ${fmt(hy.pctl12, 0)})`);
+    if (t10.pctl12 >= 90) alertas.push(`Treasury a 10 años en máximos del año (${pct(t10.valor, 2)})`);
+    if (by("VIX").last > 25) alertas.push(`VIX en zona de estrés (${fmt(by("VIX").last, 1)})`);
+    const lect = alertas.length ? `<div class="note"><b>A vigilar:</b> ${esc(alertas.join("; "))}.</div>` : `<div class="note">Ningún indicador en zona de alerta.</div>`;
+    return panel("Tablero de riesgo", table(["Indicador", "Valor", "Cambio 1 mes", "Percentil 12 m", "6 meses", "Nivel"], F, [0]) + lect
+      + `<div class="note">Percentil: dónde está hoy dentro de los últimos 12 meses (0 = mínimo, 100 = máximo). Nivel: alto (percentil 80 o más), bajo (20 o menos) o medio; en rojo cuando es una mala señal (por ejemplo, riesgo país alto o reservas bajas) y en verde cuando es buena. Cambios en rojo: movimiento desfavorable.</div>`, { lead: true, src: "" });
+  }
+
   function viewResumen() {
     const mk = blk(P, "markets") || {};
     const all = Object.values(mk).flat();
@@ -226,7 +296,7 @@
 
     const gl = table(head, priceRows(pick(["DXY", "EURUSD", "USDBRL", "SX5E", "N225", "BVSP", "WTI", "BRENT", "ORO", "PLATA", "SOJA", "TRIGO", "MAIZ", "BTC"]), cols));
 
-    return `<div class="cols-3">${panel("EE.UU. y Fed", us, { lead: true, meta: meta(P, "markets") })}${panel("Argentina", ar, { meta: meta(P, "dolares") })}${panel("Global y commodities", gl, { meta: meta(P, "markets") })}</div>
+    return `${tableroRiesgo()}<div class="cols-3">${panel("EE.UU. y Fed", us, { meta: meta(P, "markets") })}${panel("Argentina", ar, { meta: meta(P, "dolares") })}${panel("Global y commodities", gl, { meta: meta(P, "markets") })}</div>
       ${movers()}<div class="cols-2">${panel("Próximos eventos", eventsList(upcoming().slice(0, 5)), { src: "" })}${panel("Titulares", newsList(mergedNews().slice(0, 5)), { meta: meta(P, "news") })}</div>`;
   }
 
@@ -432,15 +502,23 @@
     const hoyMs = Date.now();
     const futPts = fut.map((c) => ({ x: Math.round((new Date(c.vto + "T12:00:00-03:00") - hoyMs) / 864e5), y: c.precio, label: c.especie })).filter((p) => p.x > 0);
     const futAl = (d) => { for (let i = 0; i < futPts.length - 1; i++) { const a = futPts[i], b = futPts[i + 1]; if (d >= a.x && d <= b.x) return a.y + (b.y - a.y) * (d - a.x) / (b.x - a.x); } return null; };
-    const eqRows = a35 ? pf.filter((r) => r.pago_final && r.dias > 0).map((r) => {
-      const eq = a35 * r.pago_final / r.precio, te = techoAl(r.dias), fu = futAl(r.dias);
-      const vsTecho = te ? (eq / te - 1) * 100 : null;
-      return [r.ticker, dmy(r.vto), r.dias, `<b>${fmt(eq, 0)}</b>`, chg((eq / a35 - 1) * 100, 1),
-        fu ? `${fmt(fu, 0)}<span class="sub ${eq > fu ? "up" : "down"}">${eq > fu ? "letra gana" : "futuro gana"}</span>` : "—", te ? fmt(te, 0) : "—",
-        vsTecho == null ? "—" : `<span class="${vsTecho > 0 ? "up" : "flat"}">${fmt(vsTecho, 1)}%</span>`];
-    }) : [];
-    const eqT = panel("Dólar de equilibrio (carry trade)", table(["Letra", "Vto.", "Días", "Dólar equil.", "Suba que tolera", "Futuro A3", "Techo est.", "Equil. vs. techo"], eqRows)
-      + `<div class="note">Dólar mayorista al vencimiento que deja igual invertir en la letra que comprar dólares hoy (A3500 ${fmt(a35, 2)} × pago final ÷ precio). Si al vencimiento el dólar queda por debajo, la letra le ganó al dólar. Techo de banda estimado: el de hoy ajustado por la última inflación mensual (${pct(ipm, 1)}), según la regla vigente. Equilibrio vs. techo negativo = si el dólar llegara al techo, la letra perdería contra el dólar; en verde, gana igual. Futuro A3: dólar futuro interpolado al vencimiento de la letra; si el equilibrio es mayor, la letra rinde más que cubrirse con futuro.</div>`, { meta: m });
+    // tablero de carry: tasa real esperada, devaluación implícita (futuro y banda) y dólar de equilibrio de cada letra
+    const cp = carryPesos(), rf = cp.ref;
+    const signo = (v, d = 2) => (v == null ? "—" : `<span class="${v > 0.005 ? "up" : v < -0.005 ? "down" : "flat"}">${v > 0 ? "+" : ""}${fmt(v, d)}%</span>`);
+    const carryRows = cp.rows.map((x) => [tk(x.r), x.r.dias, pct(x.r.tem), pct(x.inf, 2), signo(x.real), pct(x.devFut, 2), signo(x.devFut != null ? ((1 + x.r.tem / 100) / (1 + x.devFut / 100) - 1) * 100 : null),
+      `<b>${fmt(x.eq, 0)}</b>`, x.fu ? fmt(x.fu, 0) : "—", x.te ? fmt(x.te, 0) : "—", signo(x.vsTecho, 1)]);
+    let lectCarry = "";
+    if (rf) {
+      const carryFut = rf.devFut != null ? ((1 + rf.r.tem / 100) / (1 + rf.devFut / 100) - 1) * 100 : null;
+      const partes = [`A ~${rf.r.dias} días (${rf.r.ticker}) la tasa fija paga ${pct(rf.r.tem, 2)} mensual`];
+      if (rf.real != null) partes.push(`${rf.real >= 0 ? "" : "−"}${fmt(Math.abs(rf.real), 2)} puntos ${rf.real >= 0 ? "por encima" : "por debajo"} de la inflación que espera el REM (${pct(rf.inf, 2)})`);
+      if (carryFut != null) partes.push(`y ${fmt(Math.abs(carryFut), 2)} puntos ${carryFut >= 0 ? "por encima" : "por debajo"} de la devaluación mensual que descuenta el futuro (${pct(rf.devFut, 2)})`);
+      lectCarry = `<ul class="lectura"><li>${esc(partes.join(", "))}.</li>`
+        + (rf.eq && cp.a35 ? `<li>${esc(`Para que hubiera convenido comprar dólares hoy, el mayorista tendría que superar ${fmt(rf.eq, 0)} al vencimiento (+${fmt((rf.eq / cp.a35 - 1) * 100, 1)}% desde ${fmt(cp.a35, 0)}).`)}${rf.te ? esc(` El techo estimado de la banda para esa fecha es ${fmt(rf.te, 0)}: ${rf.vsTecho > 0 ? "aun con el dólar en el techo, la letra gana" : "si el dólar llegara al techo, la letra perdería"}.`) : ""}</li>` : "")
+        + (cp.distTecho != null ? `<li>${esc(`Hoy el mayorista está a ${fmt(cp.distTecho, 1)}% del techo de la banda (${fmt(cp.techoHoy, 0)}).`)}</li>` : "") + `</ul>`;
+    }
+    const eqT = panel("Carry en pesos: ¿quedarse en pesos o pasarse a dólares?", lectCarry + table(["Letra", "Días", "TEM", "Inflación REM", "Tasa real", "Dev. implícita futuro", "Carry vs. futuro", "Dólar equil.", "Futuro A3", "Techo est.", "Equil. vs. techo"], carryRows)
+      + `<div class="note">Todo en tasas mensuales. Inflación REM: promedio de las medianas mensuales hasta el vencimiento. Tasa real: TEM descontada esa inflación. Devaluación implícita: la que descuenta el dólar futuro A3 (interpolado al vencimiento) contra el mayorista de hoy (${fmt(cp.a35, 2)}). Carry vs. futuro: lo que gana la letra por encima de cubrirse con futuro. Dólar de equilibrio: el mayorista al vencimiento que empata la letra con comprar dólares hoy. Techo estimado: el de hoy ajustado por la última inflación (${pct(cp.ipm, 1)}), según la regla vigente; equilibrio vs. techo en verde = la letra gana aun con el dólar en el techo.</div>`, { lead: true, meta: m });
     // curva del dólar de equilibrio contra la banda cambiaria proyectada
     const pfEq = a35 ? pf.filter((r) => r.pago_final && r.dias > 0) : [];
     const maxD = Math.max(30, ...pfEq.map((r) => r.dias));
@@ -484,7 +562,7 @@
         tamar.map((r) => fila(r, [tk(r), dmy(r.vto), fmt(r.precio, 2), r.cond?.margen != null ? `+${fmt(r.cond.margen, 1)}` : "—",
           fmt(r.pago_final, 2), `<b>${pct(r.tir)}</b>`, pct(r.tem_mercado)])))
       + `<div class="note">Capitalizan mensualmente a TAMAR (bancos privados) + margen hasta el vencimiento. Pago final proyectado: TAMAR publicada desde la emisión y, para lo que falta, la última (${tu ? `${fmt(tu[1], 2)}% del ${dmy(tu[0])}` : "—"}). Si la TAMAR baja, el pago final y la TIR bajan.</div>`, { meta: meta(D, "tamar_terms") });
-    return `${rueda()}${ref}<div class="cols-split"><div class="view">${fija}${eqT}</div><div class="sticky view">${curvaPesos}${cauT}</div></div>
+    return `${rueda()}${ref}${eqT}<div class="cols-split"><div class="view">${fija}</div><div class="sticky view">${curvaPesos}${cauT}</div></div>
       <div class="cols-split"><div class="view">${cerT}</div><div class="sticky">${cerCurva}</div></div>
       <div class="cols-split"><div class="view">${beT}${dlT}</div><div class="view">${licT}${tam}</div></div>`;
   }
