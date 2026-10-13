@@ -97,11 +97,13 @@ GitHub puede demorar las corridas programadas entre 5 y 30 minutos. Si el reposi
 | Probabilidades de la Fed | Kalshi | — | Polymarket; CME FedWatch (sin API gratis) |
 | Macro EE.UU. (CPI, PCE, empleo, PBI) y Treasuries | FRED (con clave) | — | APIs de BLS / BEA / Tesoro de EE.UU. |
 | ISM manufacturero | Comunicado de prensa (PR Newswire) | — | — |
-| Condiciones financieras (spreads high yield y grado de inversión, tasa real, inflación esperada, pendiente, NFCI) | FRED | — | — |
+| Condiciones financieras (spreads high yield y grado de inversión, tasa real, inflación esperada, pendiente, NFCI, liquidez neta de la Fed = WALCL − TGA − RRP) | FRED | — | — |
+| Sorpresa de los datos (IPC vs REM; CPI, PCE, empleo, ventas vs consenso) | IPC: INDEC; REM: argentinadatos; consenso: Forex Factory; dato EE.UU.: FRED | el esperado se guarda en history/rem_ipc.json y history/consenso_us.json antes de cada dato | — |
+| Diferencia de TIR ley local – ley NY (historia) | fichas de bonos (BYMA, cálculo propio) | — | — |
 | Tasa de la Fed / EFFR / dot plot | FRED, NY Fed, federalreserve.gov | — | — |
 | Fechas de reuniones FOMC | federalreserve.gov | lista en `instruments.json` | — |
 | BCRA (A3500, reservas, compras, tasas, CER, UVA, REM 12m) | API BCRA v4 | si falla el certificado, reintenta sin verificar | argentinadatos.com |
-| IPC y EMAE | datos.gob.ar (INDEC) | — | API BCRA (inflación) |
+| IPC y EMAE | datos.gob.ar (INDEC) | IPC: argentinadatos (se usa la que tenga el último mes publicado) | API BCRA (inflación) |
 | Riesgo país, REM, historia del dólar | argentinadatos.com | — | Ámbito, BCRA (REM en Excel) |
 | Bandas cambiarias | BCRA (Excel) | — | cálculo con la regla vigente |
 | Calendario INDEC | PDF de calendario de difusión | eventos de `calendario_ar.json` | — |
