@@ -26,7 +26,7 @@
   const tk = (r) => `${esc(r.ticker)}${r.opero === false ? `<span class="sinop-tag" title="No operó en la rueda de hoy: el precio es el último conocido">s/op</span>` : ""}`;
   const fila = (r, celdas) => { if (r.opero === false) celdas.cls = "sinop"; if (r.flujos || r.cond || r.tipo === "TAMAR" || r.tipo === "Dólar linked") { celdas.tk = r.ticker; celdas.cls = `${celdas.cls || ""} clic`.trim(); } return celdas; };
   const table = (head, rows, left = []) => rows.length
-    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}${r.emp ? ` data-emp="${esc(r.emp)}" title="Ver ficha"` : ""}${r.acc ? ` data-acc="${esc(r.acc)}" title="Ver ficha"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+    ? `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th${left.includes(i) ? ' class="txt"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr${r.cls ? ` class="${r.cls}"` : ""}${r.tk ? ` data-tk="${esc(r.tk)}" title="Ver ficha"` : ""}${r.emp ? ` data-emp="${esc(r.emp)}" title="Ver ficha"` : ""}${r.acc ? ` data-acc="${esc(r.acc)}" title="Ver ficha"` : ""}${r.ind ? ` data-ind="${esc(r.ind)}" title="Ver interpretación"` : ""}>${r.map((c, i) => `<td${left.includes(i) ? ' class="txt"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">Sin datos todavía.</div>`;
   const byId = (arr, id) => (arr || []).find((x) => x.id === id) || {};
 
@@ -213,6 +213,148 @@
     return { rows, ref, a35, techoHoy: ban?.techo, distTecho: ban?.techo && a35 ? (ban.techo / a35 - 1) * 100 : null, ipm };
   }
 
+  /* ---------- Interpretación de indicadores (clic en el tablero de riesgo y en condiciones financieras) ---------- */
+  // Cada indicador: qué es, cómo se lee, qué dice hoy (reglas fijas con los datos del momento) y qué implica.
+  function datosIndicador(id) {
+    const mk = blk(P, "markets") || {}, all = Object.values(mk).flat(), by = (x) => all.find((r) => r.id === x) || {};
+    const ta = blk(D, "tablero_ar") || {}, rp = blk(D, "riesgo_pais") || {}, ts = blk(D, "treasuries") || {};
+    const cf = Object.fromEntries((blk(D, "condiciones_fin") || []).map((r) => [r.id, r]));
+    const br = (blk(P, "dolares") || {}).brechas || {}, c = carryPesos();
+    const ctx = (x, live) => (x ? { valor: live ?? x.valor, d_mes: x.d_mes, pctl: x.pctl12, min: x.min12, max: x.max12, serie: x.serie, fecha: x.fecha } : live != null ? { valor: live } : null);
+    const mkt = (r) => (r.last != null ? { valor: r.last, d_mes_pct: r.m, pctl: r.p12, serie: r.spark, fecha: r.date } : null);
+    const cfr = (x) => (x ? { valor: x.valor, d_mes: x.d_mes, pctl: x.pctl12, min: x.min12, max: x.max12, serie: x.serie, fecha: x.fecha } : null);
+    return {
+      rp: ctx(rp.ctx, rp.last), brecha: ctx(ta.brecha, br.ccl_a3500), dist_techo: ctx(ta.dist_techo, c.distTecho), reservas: ctx(ta.reservas),
+      compras: ctx(ta.compras20), tasa_real: c.ref && c.ref.real != null ? { valor: c.ref.real, carry: c } : null, ust10: ctx(ts.ctx_10y),
+      hy: cfr(cf.BAMLH0A0HYM2), ig: cfr(cf.BAMLC0A0CM), real10: cfr(cf.DFII10), be10: cfr(cf.T10YIE), pend: cfr(cf.T10Y2Y), nfci: cfr(cf.NFCI),
+      dxy: mkt(by("DXY")), vix: mkt(by("VIX")), brent: mkt(by("BRENT")), soja: mkt(by("SOJA")),
+    }[id];
+  }
+  const pb = (v) => `${fmt(v, 0)} pb`, pc = (v, d = 1) => `${fmt(v, d)}%`;
+  const tramo = (v, cortes) => { for (const [lim, txt] of cortes) if (v < lim) return txt; return cortes[cortes.length - 1][1]; };
+  const INDIC = {
+    rp: { nombre: "Riesgo país", u: pb, dir: "malo",
+      que: "Diferencia de tasa (en puntos básicos; 100 pb = 1 punto porcentual) que pagan los bonos argentinos en dólares sobre los del Tesoro de EE.UU. Lo calcula JP Morgan (EMBI) y es la medida más usada del riesgo de crédito del país.",
+      leer: "Más alto = el mercado ve más riesgo de que Argentina no pague y le exige más rendimiento. Por debajo de ~500 pb un país suele poder refinanciar deuda en el mercado internacional; por encima de ~800 pb el acceso queda cerrado en la práctica.",
+      hoy: (x) => [tramo(x.valor, [[500, "Está en zona de acceso al mercado: Argentina podría colocar deuda nueva a tasas razonables."], [800, "Está en zona intermedia: el mercado todavía cobra una prima alta y emitir deuda nueva sería caro."], [1e9, "Está en zona de estrés: con este nivel el acceso al financiamiento internacional queda cerrado."]]),
+        x.d_mes != null ? (x.d_mes > 50 ? `Empeoró fuerte en el mes (+${fmt(x.d_mes, 0)} pb).` : x.d_mes < -50 ? `Mejoró fuerte en el mes (${fmt(x.d_mes, 0)} pb).` : `Se movió poco en el mes (${x.d_mes > 0 ? "+" : ""}${fmt(x.d_mes, 0)} pb).`) : ""],
+      implica: () => { const g = ((blk(P, "ar_market") || {}).soberanos || []).find((r) => r.ticker === "GD35");
+        return `Es el principal motor de precio de los bonos en dólares (AL/GD): cuando sube, caen. Como referencia, ${g && g.dur_mod ? `el GD35 tiene una duration de ${fmt(g.dur_mod, 1)}: 100 pb de suba del riesgo país le restan ~${fmt(g.dur_mod, 1)}% de precio` : "un bono largo pierde cerca de 5-7% de precio por cada 100 pb de suba"}. También mueve a las acciones argentinas, en especial bancos.`; } },
+    brecha: { nombre: "Brecha CCL / oficial", u: (v) => pc(v, 1), dir: "malo",
+      que: "Diferencia porcentual entre el dólar contado con liquidación (el que se usa para sacar dólares del país vía bonos o acciones) y el mayorista oficial (A3500).",
+      leer: "Una brecha baja indica un mercado cambiario normalizado y poca demanda de cobertura. Si sube, el mercado anticipa presión sobre el oficial (devaluación) o hay restricciones que encarecen el dólar libre.",
+      hoy: (x) => [tramo(x.valor, [[10, "Brecha baja: el mercado cambiario funciona casi unificado y no hay señales de presión fuerte."], [25, "Brecha moderada: hay algo de demanda de cobertura por encima del oficial."], [1e9, "Brecha alta: señal de desconfianza en el tipo de cambio oficial o de restricciones fuertes."]]),
+        x.d_mes != null ? `En el mes ${x.d_mes > 0.5 ? "se amplió" : x.d_mes < -0.5 ? "se achicó" : "casi no cambió"} (${x.d_mes > 0 ? "+" : ""}${fmt(x.d_mes, 1)} puntos).` : ""],
+      implica: () => "Afecta a todo lo que se valúa en CCL: CEDEARs, ADRs y bonos en dólares cable. Con brecha baja, comprar dólar MEP o CCL cuesta casi lo mismo que el oficial; si se amplía, los CEDEARs y acciones en pesos suben aunque su precio en dólares no cambie." },
+    dist_techo: { nombre: "Distancia al techo de la banda", u: (v) => pc(v, 1), dir: "bueno",
+      que: "Cuánto podría subir el dólar mayorista antes de llegar al techo de la banda cambiaria, el nivel a partir del cual el BCRA vende dólares para contenerlo. El techo se ajusta cada mes por la inflación pasada.",
+      leer: "Más distancia = más colchón: el dólar puede subir bastante sin forzar al BCRA a intervenir. Cerca del techo, cualquier presión obliga al BCRA a vender reservas y crece el riesgo de un cambio de régimen.",
+      hoy: (x) => [tramo(x.valor, [[5, "El mayorista está muy cerca del techo: zona de riesgo, el BCRA podría tener que vender reservas."], [15, "Distancia intermedia: hay margen, pero un shock podría acercarlo al techo."], [1e9, "Distancia holgada: el dólar tiene mucho espacio para subir dentro de la banda."]])],
+      implica: () => "Es clave para el carry en pesos: con mucho colchón, una LECAP puede ganarle al dólar incluso si este sube bastante. Mirá en AR Pesos el \"dólar de equilibrio\" de cada letra contra el techo estimado." },
+    reservas: { nombre: "Reservas brutas del BCRA", u: (v) => `US$ ${fmt(v / 1000, 1)} mil M`, dir: "bueno",
+      que: "Todos los activos en moneda extranjera del BCRA (dólares, oro, DEG, etc.). Son brutas: incluyen dólares que no son de libre disponibilidad, como el swap con China o los encajes de los depósitos en dólares.",
+      leer: "Suben con compras del BCRA, desembolsos de organismos y colocaciones de deuda; bajan con pagos de deuda e intervención en el mercado. Importa más la tendencia que el nivel, y las reservas netas (sin pasivos de corto plazo) son bastante menores.",
+      hoy: (x) => [x.d_mes != null ? `En el último mes ${x.d_mes > 0 ? "subieron" : "bajaron"} US$ ${fmt(Math.abs(x.d_mes), 0)} M.` : "", x.pctl != null ? (x.pctl >= 80 ? "Están cerca del máximo del último año." : x.pctl <= 20 ? "Están cerca del mínimo del último año: conviene seguir de cerca los próximos pagos de deuda." : "Están en la zona media de su rango del año.") : ""],
+      implica: () => "Son el respaldo para pagar la deuda en dólares: una caída sostenida suele presionar el riesgo país y los bonos AL/GD. Las bajas puntuales por pago de deuda (enero y julio) son esperables y no son señal de alarma por sí solas." },
+    compras: { nombre: "Compras del BCRA (20 ruedas)", u: (v) => `US$ ${fmt(v, 0)} M`, dir: "bueno",
+      que: "Suma de los dólares que el BCRA compró (o vendió, si es negativo) en el mercado de cambios en las últimas 20 ruedas, aproximadamente un mes.",
+      leer: "Positivo: el BCRA acumula reservas comprando el excedente de dólares del mercado. Negativo: está vendiendo para sostener el tipo de cambio.",
+      hoy: (x) => [x.valor > 0 ? `El BCRA viene comprando: US$ ${fmt(x.valor, 0)} M en el último mes.` : `El BCRA viene vendiendo: US$ ${fmt(-x.valor, 0)} M en el último mes.`, x.d_mes != null ? `El ritmo ${x.d_mes > 0 ? "aumentó" : "bajó"} respecto del mes anterior (${x.d_mes > 0 ? "+" : ""}${fmt(x.d_mes, 0)} M).` : ""],
+      implica: () => "Compras sostenidas fortalecen las reservas y bajan el riesgo país; si el BCRA pasa a vender, es señal de presión cambiaria. La estacionalidad importa: entre abril y julio entran los dólares de la cosecha gruesa." },
+    tasa_real: { nombre: "Tasa real en pesos", u: (v) => `${fmt(v, 2)}% mensual`, dir: "bueno",
+      que: "Lo que paga por mes la LECAP de referencia (unos 3 meses) por encima de la inflación que esperan los analistas del REM del BCRA para ese período.",
+      leer: "Positiva: los pesos en tasa fija le ganan a la inflación esperada. Negativa: los pesos pierden poder de compra y aumenta el incentivo a dolarizarse.",
+      hoy: (x) => { const r = x.carry.ref; return [`La ${r.r.ticker} (${r.r.dias} días) paga ${pct(r.r.tem, 2)} mensual contra una inflación esperada de ${pct(r.inf, 2)}: tasa real de ${pct(x.valor, 2)} mensual.`,
+        tramo(x.valor, [[0, "Es negativa: estar en pesos a tasa fija no compensa la inflación esperada."], [1, "Es positiva y moderada: compensa la inflación con un margen razonable."], [1e9, "Es alta: atractiva para el carry, aunque tasas reales muy altas suelen reflejar desconfianza o una política monetaria muy dura."]]),
+        r.devFut != null ? `El dólar futuro descuenta ${pct(r.devFut, 2)} de devaluación mensual: la letra ${r.r.tem > r.devFut ? "le gana" : "le pierde"} a cubrirse con futuro.` : ""]; },
+      implica: () => "Es el centro de la decisión pesos vs. dólares. Con tasa real positiva y mucho colchón contra el techo de la banda, el carry en pesos suele convenir; con tasa real negativa, conviene cubrirse (dólar, dólar linked o CER)." },
+    ust10: { nombre: "Treasury 10 años", u: (v) => pc(v, 2), dir: "malo",
+      que: "Rendimiento del bono del Tesoro de EE.UU. a 10 años: la tasa de referencia del mundo para valuar activos de largo plazo.",
+      leer: "Si sube, se encarece el financiamiento global y bajan los precios de bonos y acciones (sobre todo las de crecimiento y las de emergentes). Combina expectativa de inflación y tasa real.",
+      hoy: (x) => [tramo(x.valor, [[4, "Nivel bajo para la última década reciente: entorno favorable para activos de riesgo."], [5, "Nivel intermedio-alto: el costo del dinero en el mundo es alto."], [1e9, "Nivel alto: presiona a emergentes y a las acciones de mayor valuación."]]), x.d_mes != null ? `En el mes ${x.d_mes > 0 ? "subió" : "bajó"} ${fmt(Math.abs(x.d_mes * 100), 0)} pb.` : ""],
+      implica: () => "Los bonos argentinos rinden riesgo país + Treasury: una suba del 10 años encarece la refinanciación de Argentina y presiona los AL/GD aun si el riesgo país no cambia." },
+    hy: { nombre: "Spread high yield EE.UU.", u: pb, dir: "malo",
+      que: "Rendimiento extra que pagan los bonos corporativos de peor calificación de EE.UU. sobre los Treasuries (índice de ICE BofA).",
+      leer: "Es el mejor termómetro del apetito por riesgo de crédito: si sube, los inversores piden más por prestar a deudores riesgosos, algo que suele preceder caídas en acciones y en deuda emergente.",
+      hoy: (x) => [tramo(x.valor, [[300, "Por debajo de 300 pb: calma, el crédito está muy disponible (incluso caro)."], [450, "Entre 300 y 450 pb: rango normal."], [600, "Entre 450 y 600 pb: tensión; el mercado empieza a cubrirse."], [1e9, "Más de 600 pb: estrés de crédito, típico de recesión o crisis."]]), x.d_mes != null && x.d_mes > 75 ? `Subió ${fmt(x.d_mes, 0)} pb en el mes: un deterioro rápido como este suele adelantarse a los movimientos en emergentes.` : x.d_mes != null ? `En el mes se movió ${x.d_mes > 0 ? "+" : ""}${fmt(x.d_mes, 0)} pb.` : ""],
+      implica: () => "Argentina es un crédito high yield: cuando este spread se amplía, el riesgo país suele subir también, aunque las noticias locales sean buenas." },
+    ig: { nombre: "Spread grado de inversión EE.UU.", u: pb, dir: "malo",
+      que: "Rendimiento extra de los bonos corporativos de buena calificación de EE.UU. sobre los Treasuries.",
+      leer: "Se mueve menos que el high yield; si sube, la tensión es amplia y ya alcanza a las empresas sólidas.",
+      hoy: (x) => [tramo(x.valor, [[100, "Menos de 100 pb: muy ajustado, el mercado no ve riesgo de crédito."], [150, "Entre 100 y 150 pb: normal."], [1e9, "Más de 150 pb: tensión generalizada en el crédito."]])],
+      implica: () => "Confirma o descarta lo que dice el high yield: si ambos suben juntos, la aversión al riesgo es general y suele golpear a emergentes." },
+    real10: { nombre: "Tasa real 10 años (TIPS)", u: (v) => pc(v, 2), dir: "malo",
+      que: "Rendimiento de los bonos del Tesoro de EE.UU. ajustados por inflación (TIPS) a 10 años: la tasa de interés descontada la inflación.",
+      leer: "Es el costo real del dinero. Si sube, pierden atractivo el oro, las acciones de crecimiento y los emergentes.",
+      hoy: (x) => [tramo(x.valor, [[1, "Menor a 1%: condiciones laxas."], [2, "Entre 1% y 2%: zona neutral."], [1e9, "Más de 2%: condiciones restrictivas, el dinero es caro en términos reales."]])],
+      implica: () => "Tasas reales altas fortalecen al dólar y quitan flujo a emergentes; también suelen presionar al oro." },
+    be10: { nombre: "Inflación esperada 10 años", u: (v) => pc(v, 2), dir: null,
+      que: "Inflación promedio que el mercado espera en EE.UU. para los próximos 10 años (diferencia entre el Treasury nominal y el TIPS).",
+      leer: "Entre 2% y 2,5% se considera anclada cerca del objetivo de la Fed. Por encima, preocupación por inflación; por debajo de 2%, expectativas de desaceleración.",
+      hoy: (x) => [tramo(x.valor, [[2, "Por debajo de 2%: el mercado espera desaceleración."], [2.5, "Entre 2% y 2,5%: expectativas ancladas cerca del objetivo de la Fed."], [1e9, "Por encima de 2,5%: el mercado duda de que la Fed baje la inflación al 2%."]])],
+      implica: () => "Si sube, la Fed tiene menos margen para bajar tasas, lo que es negativo para bonos largos y emergentes." },
+    pend: { nombre: "Pendiente 10 años – 2 años", u: pb, dir: null,
+      que: "Diferencia entre el rendimiento del Treasury a 10 años y el de 2 años.",
+      leer: "Negativa (curva invertida): el mercado espera bajas de tasa por una economía más débil; históricamente anticipó recesiones. Cuando vuelve a positiva después de una inversión, la recesión suele estar cerca.",
+      hoy: (x) => [tramo(x.valor, [[0, "Curva invertida: señal clásica de recesión adelante."], [50, "Curva casi plana: el mercado no espera ni mucho crecimiento ni recesión."], [1e9, "Curva con pendiente positiva normal."]]), x.d_mes != null ? `En el mes ${x.d_mes > 0 ? "se empinó" : "se aplanó"} ${fmt(Math.abs(x.d_mes), 0)} pb.` : ""],
+      implica: () => "Una curva que se empina porque suben las tasas largas presiona a los activos de largo plazo; si se empina porque bajan las cortas (la Fed recorta), suele ser favorable para el riesgo." },
+    nfci: { nombre: "Condiciones financieras (Chicago Fed)", u: (v) => fmt(v, 2), dir: "malo",
+      que: "Índice semanal de la Fed de Chicago que resume más de 100 indicadores de crédito, liquidez y riesgo de EE.UU. Cero = promedio histórico.",
+      leer: "Negativo: condiciones más holgadas que el promedio (crédito fácil). Positivo: más ajustadas. Lo que más importa es el cambio: un salto hacia arriba indica estrés.",
+      hoy: (x) => [tramo(x.valor, [[-0.3, "Holgadas: el crédito y la liquidez fluyen con facilidad."], [0, "Neutras, cerca del promedio histórico."], [1e9, "Ajustadas: el sistema financiero está bajo tensión."]])],
+      implica: () => "Condiciones holgadas suelen acompañar subas de acciones y de deuda emergente; un endurecimiento rápido es una de las primeras señales para reducir riesgo." },
+    dxy: { nombre: "Dólar global (DXY)", u: (v) => fmt(v, 2), dir: "malo",
+      que: "Valor del dólar contra una canasta de monedas de países desarrollados (euro, yen, libra, etc.).",
+      leer: "Un dólar fuerte encarece la deuda en dólares de los emergentes, baja el precio de las materias primas y saca flujo de los mercados emergentes.",
+      hoy: (x) => [tramo(x.valor, [[95, "Dólar débil: viento a favor para emergentes y commodities."], [105, "Dólar en rango normal."], [1e9, "Dólar fuerte: viento en contra para emergentes."]]), x.d_mes_pct != null ? `En el mes ${x.d_mes_pct > 0 ? "se fortaleció" : "se debilitó"} ${fmt(Math.abs(x.d_mes_pct), 1)}%.` : ""],
+      implica: () => "Para Argentina, un DXY en alza suele significar menos precio para la soja y presión sobre el real brasileño, dos factores que afectan el ingreso de dólares." },
+    vix: { nombre: "VIX", u: (v) => fmt(v, 1), dir: "malo",
+      que: "Volatilidad esperada del S&P 500 para los próximos 30 días, calculada con precios de opciones. Se lo llama \"índice del miedo\".",
+      leer: "Menos de 15: calma (a veces complacencia). 15 a 25: normal. 25 a 35: estrés. Más de 35: pánico.",
+      hoy: (x) => [tramo(x.valor, [[15, "Calma: el mercado no paga por protegerse; ojo con la complacencia."], [25, "Volatilidad normal."], [35, "Estrés: el mercado paga caro la protección."], [1e9, "Pánico: históricamente, zona de oportunidades para el largo plazo, con mucho riesgo de corto."]])],
+      implica: () => "Las subas del VIX suelen coincidir con caídas en acciones y en activos argentinos, que tienen más volatilidad que el promedio." },
+    brent: { nombre: "Petróleo Brent", u: (v) => `US$ ${fmt(v, 2)}`, dir: "bueno",
+      que: "Precio internacional de referencia del petróleo (barril, US$).",
+      leer: "Para Argentina, hoy exportadora neta de energía (Vaca Muerta), un precio alto mejora el ingreso de dólares; para el mundo, empuja la inflación.",
+      hoy: (x) => [tramo(x.valor, [[60, "Precio bajo: reduce los márgenes y la inversión en Vaca Muerta."], [90, "Precio en rango medio."], [1e9, "Precio alto: más dólares por exportaciones de energía, pero más presión inflacionaria global."]]), x.d_mes_pct != null ? `En el mes ${x.d_mes_pct > 0 ? "subió" : "bajó"} ${fmt(Math.abs(x.d_mes_pct), 1)}%.` : ""],
+      implica: () => "Impacta directo en YPF, Vista, Pampa y TGS, y en la balanza comercial argentina." },
+    soja: { nombre: "Soja", u: (v) => `${fmt(v / 100, 2)} US$/bushel`, k: 0.01, dir: "bueno",
+      que: "Precio de la soja en Chicago (contrato futuro más cercano).",
+      leer: "Es el principal producto de exportación argentino: el precio determina buena parte de los dólares que entran por la cosecha.",
+      hoy: (x) => [tramo(x.valor, [[950, "Precio bajo: menos dólares de la cosecha."], [1200, "Precio medio."], [1e9, "Precio alto: más ingreso de dólares por exportaciones del agro."]]), x.d_mes_pct != null ? `En el mes ${x.d_mes_pct > 0 ? "subió" : "bajó"} ${fmt(Math.abs(x.d_mes_pct), 1)}%.` : ""],
+      implica: () => "Pesa sobre la oferta de dólares (sobre todo entre abril y julio), las reservas del BCRA y las acciones del agro como Cresud." },
+  };
+  function abrirIndicador(id) {
+    const def = INDIC[id], x = datosIndicador(id); if (!def) return;
+    const box = $("#ficha");
+    fichaAbierta = { t: "ind:" + id };
+    if (!x) { box.innerHTML = `<div class="ficha-caja"><button class="cerrar" aria-label="Cerrar">×</button><h2>${esc(def.nombre)}</h2><div class="empty">Sin datos todavía.</div></div>`; box.hidden = false; return; }
+    const pos = x.pctl != null ? (x.pctl >= 80 ? "parte alta" : x.pctl <= 20 ? "parte baja" : "zona media") : null;
+    const rango = x.min != null && x.max != null ? `${def.u(x.min)} – ${def.u(x.max)}` : null;
+    const sg = (v) => (v > 0 ? "+" : "");
+    const cu = { brecha: (d) => `${sg(d)}${fmt(d, 1)} pp`, dist_techo: (d) => `${sg(d)}${fmt(d, 1)} pp`, reservas: (d) => `${sg(d)}US$ ${fmt(d, 0)} M`, compras: (d) => `${sg(d)}US$ ${fmt(d, 0)} M`,
+      ust10: (d) => `${sg(d)}${fmt(d * 100, 0)} pb`, real10: (d) => `${sg(d)}${fmt(d * 100, 0)} pb`, be10: (d) => `${sg(d)}${fmt(d * 100, 0)} pb`, nfci: (d) => `${sg(d)}${fmt(d, 2)}` }[id] || ((d) => `${sg(d)}${fmt(d, 0)} pb`);
+    const cambio = x.d_mes != null ? cu(x.d_mes) : x.d_mes_pct != null ? `${sg(x.d_mes_pct)}${fmt(x.d_mes_pct, 1)}%` : null;
+    const strip = [["Valor", def.u(x.valor)], cambio && ["Cambio 1 mes", cambio], x.pctl != null && ["Percentil 12 m", fmt(x.pctl, 0)], rango && ["Rango 12 m", rango]].filter(Boolean);
+    const hoy = [...(x.pctl != null ? [`Está en la ${pos} de su rango de los últimos 12 meses (percentil ${fmt(x.pctl, 0)}${rango ? `; rango ${rango}` : ""}).`] : []), ...def.hoy(x)].filter(Boolean);
+    const v = (x.serie || []).filter((y) => y != null).map((y) => y * (def.k || 1));
+    let graf = "";
+    if (v.length > 2) {
+      const W = 700, H = 150, L = 50, R = 12, T = 10, B = 14, lo = Math.min(...v), hi = Math.max(...v), m = (hi - lo) * 0.1 || Math.abs(hi) * 0.02 || 1;
+      const Y = (y) => T + (1 - (y - lo + m) / (hi - lo + 2 * m)) * (H - T - B), X = (i) => L + i / (v.length - 1) * (W - L - R);
+      graf = `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Últimos 6 meses">${niceTicks(lo - m, hi + m, 4).map((t) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${L - 6}" y="${Y(t) + 4}" text-anchor="end">${fmt(t, Math.abs(hi) < 10 ? 2 : 0)}</text>`).join("")}
+        <polyline class="s1" stroke-width="1.8" fill="none" points="${v.map((y, i) => `${X(i).toFixed(1)},${Y(y).toFixed(1)}`).join(" ")}"/></svg></div><div class="note">Últimos 6 meses${x.fecha ? `, dato del ${dmy(x.fecha)}` : ""}.</div>`;
+    }
+    box.innerHTML = `<div class="ficha-caja" role="dialog" aria-label="${esc(def.nombre)}"><button class="cerrar" aria-label="Cerrar">×</button>
+      <h2>${esc(def.nombre)}</h2><div class="strip">${strip.map(([k, val]) => `<span><b>${k}</b> ${val}</span>`).join("")}</div>${graf}
+      <h3>Qué dice hoy</h3><ul class="lectura">${hoy.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+      <h3>Qué implica para tus inversiones</h3><p class="ind-txt">${esc(def.implica())}</p>
+      <h3>Qué es</h3><p class="ind-txt">${esc(def.que)}</p>
+      <h3>Cómo se lee</h3><p class="ind-txt">${esc(def.leer)}</p>
+      <div class="note">Interpretación armada con reglas fijas y los datos del momento; es orientativa, no una recomendación.</div></div>`;
+    box.hidden = false;
+  }
+
   /* ---------- Tablero de riesgo (Resumen): indicadores clave con su contexto de 12 meses ---------- */
   function tableroRiesgo() {
     const mk = blk(P, "markets") || {}, all = Object.values(mk).flat(), by = (id) => all.find((x) => x.id === id) || {};
@@ -227,27 +369,29 @@
       return chip((nivel === "Alto") === (dir === "malo") ? "rojo" : "verde", nivel);
     };
     const F = [];
-    const add = (nombre, valor, cambio, p, serie, dir, nota) => F.push([`${nombre}${nota ? `<span class="sub">${nota}</span>` : ""}`, `<b>${valor}</b>`, cambio, p != null ? fmt(p, 0) : "—", spark(serie, dir === "malo"), estado(p, dir)]);
+    let idActual = null;   // indicador de la fila que se está agregando (para abrir su interpretación al hacer clic)
+    const add = (nombre, valor, cambio, p, serie, dir, nota) => F.push(Object.assign([`${nombre}${nota ? `<span class="sub">${nota}</span>` : ""}`, `<b>${valor}</b>`, cambio, p != null ? fmt(p, 0) : "—", spark(serie, dir === "malo"), estado(p, dir)], idActual ? { ind: idActual, cls: "clic" } : {}));
+    const con = (id, f) => { idActual = id; f(); idActual = null; };
     const rc = rp.ctx || {};
-    add("Riesgo país", `${fmt(rp.last ?? rc.valor, 0)} pb`, chgInv(rc.d_mes, 0, " pb"), rc.pctl12, rc.serie, "malo");
+    con("rp", () => add("Riesgo país", `${fmt(rp.last ?? rc.valor, 0)} pb`, chgInv(rc.d_mes, 0, " pb"), rc.pctl12, rc.serie, "malo"));
     const b = ta.brecha || {};
-    add("Brecha CCL / oficial", pct(br.ccl_a3500 ?? b.valor, 1), chgInv(b.d_mes, 1, " pp"), b.pctl12, b.serie, "malo");
+    con("brecha", () => add("Brecha CCL / oficial", pct(br.ccl_a3500 ?? b.valor, 1), chgInv(b.d_mes, 1, " pp"), b.pctl12, b.serie, "malo"));
     const dt = ta.dist_techo || {};
-    add("Distancia al techo de la banda", pct(c.distTecho ?? dt.valor, 1), chg(dt.d_mes, 1, " pp"), dt.pctl12, dt.serie, "bueno", "colchón del mayorista");
+    con("dist_techo", () => add("Distancia al techo de la banda", pct(c.distTecho ?? dt.valor, 1), chg(dt.d_mes, 1, " pp"), dt.pctl12, dt.serie, "bueno", "colchón del mayorista"));
     const rs = ta.reservas || {};
-    add("Reservas brutas BCRA", rs.valor != null ? `US$ ${fmt(rs.valor / 1000, 1)} mil M` : "—", chg(rs.d_mes, 0, " M"), rs.pctl12, rs.serie, "bueno");
+    con("reservas", () => add("Reservas brutas BCRA", rs.valor != null ? `US$ ${fmt(rs.valor / 1000, 1)} mil M` : "—", chg(rs.d_mes, 0, " M"), rs.pctl12, rs.serie, "bueno"));
     const cp = ta.compras20 || {};
-    add("Compras del BCRA", cp.valor != null ? `US$ ${fmt(cp.valor, 0)} M` : "—", chg(cp.d_mes, 0, " M"), cp.pctl12, cp.serie, "bueno", "últimas 20 ruedas");
+    con("compras", () => add("Compras del BCRA", cp.valor != null ? `US$ ${fmt(cp.valor, 0)} M` : "—", chg(cp.d_mes, 0, " M"), cp.pctl12, cp.serie, "bueno", "últimas 20 ruedas"));
     const rf = c.ref;
-    F.push([`Tasa real en pesos<span class="sub">${rf ? `${esc(rf.r.ticker)} vs. REM, mensual` : ""}</span>`, `<b>${rf && rf.real != null ? pct(rf.real, 2) : "—"}</b>`, `<span class="na">—</span>`, "—", "",
-      rf && rf.real != null ? (rf.real > 1 ? chip("verde", "Alta") : rf.real >= 0 ? chip("amarillo", "Positiva") : chip("rojo", "Negativa")) : `<span class="na">—</span>`]);
+    F.push(Object.assign([`Tasa real en pesos<span class="sub">${rf ? `${esc(rf.r.ticker)} vs. REM, mensual` : ""}</span>`, `<b>${rf && rf.real != null ? pct(rf.real, 2) : "—"}</b>`, `<span class="na">—</span>`, "—", "",
+      rf && rf.real != null ? (rf.real > 1 ? chip("verde", "Alta") : rf.real >= 0 ? chip("amarillo", "Positiva") : chip("rojo", "Negativa")) : `<span class="na">—</span>`], { ind: "tasa_real", cls: "clic" }));
     const t10 = ts.ctx_10y || {};
-    add("Treasury 10 años", pct(t10.valor, 2), chgInv(t10.d_mes != null ? t10.d_mes * 100 : null, 0, " pb"), t10.pctl12, t10.serie, "malo");
+    con("ust10", () => add("Treasury 10 años", pct(t10.valor, 2), chgInv(t10.d_mes != null ? t10.d_mes * 100 : null, 0, " pb"), t10.pctl12, t10.serie, "malo"));
     const hy = cf.BAMLH0A0HYM2;
-    if (hy) add("Spread high yield EE.UU.", `${fmt(hy.valor, 0)} pb`, chgInv(hy.d_mes, 0, " pb"), hy.pctl12, hy.serie, "malo");
+    if (hy) con("hy", () => add("Spread high yield EE.UU.", `${fmt(hy.valor, 0)} pb`, chgInv(hy.d_mes, 0, " pb"), hy.pctl12, hy.serie, "malo"));
     for (const [id, nombre, dir, inv, nota] of [["DXY", "Dólar global (DXY)", "malo", true, ""], ["VIX", "VIX", "malo", true, ""], ["BRENT", "Petróleo Brent", "bueno", false, "bueno para AR"], ["SOJA", "Soja", "bueno", false, "bueno para AR"]]) {
       const r = by(id); if (r.last == null) continue;
-      add(nombre, fmt(r.last, dec(r.last)), (inv ? chgInv : chg)(r.m), r.p12, r.spark, dir, nota);
+      con({ DXY: "dxy", VIX: "vix", BRENT: "brent", SOJA: "soja" }[id], () => add(nombre, fmt(r.last, dec(r.last)), (inv ? chgInv : chg)(r.m), r.p12, r.spark, dir, nota));
     }
     // lectura: lo que está en zona de alerta
     const alertas = [];
@@ -259,7 +403,7 @@
     if (by("VIX").last > 25) alertas.push(`VIX en zona de estrés (${fmt(by("VIX").last, 1)})`);
     const lect = alertas.length ? `<div class="note"><b>A vigilar:</b> ${esc(alertas.join("; "))}.</div>` : `<div class="note">Ningún indicador en zona de alerta.</div>`;
     return panel("Tablero de riesgo", table(["Indicador", "Valor", "Cambio 1 mes", "Percentil 12 m", "6 meses", "Nivel"], F, [0]) + lect
-      + `<div class="note">Percentil: dónde está hoy dentro de los últimos 12 meses (0 = mínimo, 100 = máximo). Nivel: alto (percentil 80 o más), bajo (20 o menos) o medio; en rojo cuando es una mala señal (por ejemplo, riesgo país alto o reservas bajas) y en verde cuando es buena. Cambios en rojo: movimiento desfavorable.</div>`, { lead: true, src: "" });
+      + `<div class="note">Percentil: dónde está hoy dentro de los últimos 12 meses (0 = mínimo, 100 = máximo). Nivel: alto (percentil 80 o más), bajo (20 o menos) o medio; en rojo cuando es una mala señal (por ejemplo, riesgo país alto o reservas bajas) y en verde cuando es buena. Cambios en rojo: movimiento desfavorable. Tocá un indicador para ver qué es y cómo interpretarlo hoy.</div>`, { lead: true, src: "" });
   }
 
   function viewResumen() {
@@ -400,9 +544,10 @@
     const u = (r, v, sig) => { const c = r.tension ? chgInv : chg;  // si subir es tensión, la suba va en rojo
       return v == null ? "—" : r.unidad === "pb" ? (sig ? c(v, 0, " pb") : `${fmt(v, 0)} pb`) : r.unidad === "%" ? (sig ? c(v * 100, 0, " pb") : pct(v, 2)) : (sig ? c(v, 2, "") : fmt(v, 2)); };
     const estadoCf = (r) => r.tension == null || r.pctl12 == null ? `<span class="na">—</span>` : r.pctl12 >= 80 ? chip("rojo", "Tenso") : r.pctl12 <= 20 ? chip("verde", "Holgado") : chip("amarillo", "Normal");
-    const cfHtml = table(["Indicador", "Último", "Semana", "Mes", "Rango 12 meses", "Percentil", "6 meses", "Estado"], cf.map((r) => [
+    const idCf = { BAMLH0A0HYM2: "hy", BAMLC0A0CM: "ig", DFII10: "real10", T10YIE: "be10", T10Y2Y: "pend", NFCI: "nfci" };
+    const cfHtml = table(["Indicador", "Último", "Semana", "Mes", "Rango 12 meses", "Percentil", "6 meses", "Estado"], cf.map((r) => Object.assign([
       `${esc(r.nombre)}<span class="sub">${dmy(r.fecha)}</span>`, `<b>${u(r, r.valor)}</b>`, u(r, r.d_sem, true), u(r, r.d_mes, true),
-      `${u(r, r.min12)} – ${u(r, r.max12)}`, r.pctl12 != null ? fmt(r.pctl12, 0) : "—", spark(r.serie, r.tension), estadoCf(r)]), [0])
+      `${u(r, r.min12)} – ${u(r, r.max12)}`, r.pctl12 != null ? fmt(r.pctl12, 0) : "—", spark(r.serie, r.tension), estadoCf(r)], idCf[r.id] ? { ind: idCf[r.id], cls: "clic" } : {})), [0])
       + `<div class="note">Percentil: dónde está hoy dentro de los últimos 12 meses (100 = máximo). Estado, para los que suben con la tensión: percentil 80 o más "tenso", 20 o menos "holgado". Spreads: rendimiento extra que pagan los bonos corporativos sobre los Treasuries; cuando suben, el mercado pide más por el riesgo y suele preceder caídas en emergentes. NFCI: positivo = condiciones más ajustadas que el promedio histórico.</div>`;
     return `${L.lect}<div class="cols-2"><div class="view">${L.sem}${panel("Fed", fedHtml, { meta: meta(D, "fed") })}${L.real}</div>
       <div class="view">${panel("Treasuries", tsyHtml, { meta: meta(D, "treasuries") })}${L.mvf}</div></div>
@@ -1237,6 +1382,7 @@
     const tr = e.target.closest("[data-tk]"); if (tr) abrirFlujos(tr.dataset.tk);
     const te = e.target.closest("[data-emp]"); if (te) abrirEmpresa(te.dataset.emp);
     const ta = e.target.closest("[data-acc]"); if (ta) abrirAccion(ta.dataset.acc);
+    const ti = e.target.closest("[data-ind]"); if (ti) abrirIndicador(ti.dataset.ind);
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#ficha").hidden = true; });
   document.addEventListener("click", (e) => {
