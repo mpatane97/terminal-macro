@@ -173,3 +173,25 @@ def changes_from_series(series, last=None):
         "m": pct(v_last, at_or_before(30)),
         "y": pct(v_last, at_or_before(365)),
     }
+
+
+def contexto(serie, puntos=40):
+    """Contexto histórico de una serie [(fecha ISO, valor)]: último valor, cambio en un mes, dónde está dentro
+    de su rango de 12 meses (percentil 0-100) y una muestra de los últimos 6 meses para el mini gráfico."""
+    s = sorted((d[:10], v) for d, v in serie if v is not None)
+    if not s:
+        return None
+    f, v = s[-1]
+    fin = datetime.strptime(f, "%Y-%m-%d").date()
+    hace_mes = [x for d, x in s if d <= (fin - timedelta(days=30)).isoformat()]
+    u12 = [x for d, x in s if d >= (fin - timedelta(days=365)).isoformat()]
+    seis = [x for d, x in s if d >= (fin - timedelta(days=183)).isoformat()]
+    paso = max(1, len(seis) // puntos)
+    muestra = seis[::paso]
+    if muestra and muestra[-1] != seis[-1]:
+        muestra.append(seis[-1])
+    return {"valor": v, "fecha": f, "d_mes": v - hace_mes[-1] if hace_mes else None,
+            "d_mes_pct": (v / hace_mes[-1] - 1) * 100 if hace_mes and hace_mes[-1] else None,
+            "pctl12": sum(1 for x in u12 if x <= v) / len(u12) * 100 if u12 else None,
+            "min12": min(u12) if u12 else None, "max12": max(u12) if u12 else None,
+            "serie": [round(x, 4) for x in muestra]}

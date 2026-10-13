@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 
 import openpyxl
 
-from common import (DATA, HIST, changes_from_series, http_get, load_config, log, now_iso, num, pct,
+from common import (DATA, HIST, changes_from_series, contexto, http_get, load_config, log, now_iso, num, pct,
                     read_json, run_blocks, today_ar, write_json)
 
 CFG = load_config("instruments.json")
@@ -189,7 +189,7 @@ def _dot_plot():
 def treasuries():
     plazos = [("3m", "DGS3MO"), ("2y", "DGS2"), ("5y", "DGS5"), ("10y", "DGS10"), ("30y", "DGS30")]
     start = (today_ar() - timedelta(days=400)).isoformat()
-    rows, mes = [], []
+    rows, mes, ctx10 = [], [], None
     for lab, sid in plazos:
         s = fred(sid, start)
         last = s[-1]
@@ -200,12 +200,14 @@ def treasuries():
             c = [v for d, v in s if d <= t]
             return c[-1] if c else None
         m1 = at(30)
+        if lab == "10y":
+            ctx10 = contexto(s)
         rows.append({"plazo": lab, "tasa": last[1], "fecha": last[0],
                      "d_pb": (last[1] - s[-2][1]) * 100, "m_pb": (last[1] - m1) * 100 if m1 else None,
                      "y_pb": (last[1] - at(365)) * 100 if at(365) else None, "hace_1m": m1})
     t = {r["plazo"]: r["tasa"] for r in rows}
     spread = (t["10y"] - t["2y"]) * 100 if t.get("10y") and t.get("2y") else None
-    return {"curva": rows, "spread_10_2_pb": spread}, "FRED (dato del Tesoro de EE.UU.), cierre diario"
+    return {"curva": rows, "spread_10_2_pb": spread, "ctx_10y": ctx10}, "FRED (dato del Tesoro de EE.UU.), cierre diario"
 
 
 # ---------- BCRA ----------
@@ -303,6 +305,7 @@ def riesgo_pais():
     s = http_get("https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais")
     serie = [(r["fecha"][:10], num(r["valor"])) for r in s]
     ch = changes_from_series(serie)
+    ch["ctx"] = contexto(serie)
     ch["d_pb"] = None
     pts = sorted(serie)
     if len(pts) > 1:
@@ -315,17 +318,21 @@ def bandas():
     r = http_get(url, as_json=False, timeout=40)
     wb = openpyxl.load_workbook(io.BytesIO(r.content), data_only=True, read_only=True)
     today = today_ar()
-    best = None
+    best, hist = None, {}
     for ws in wb.worksheets:
         for row in ws.iter_rows(values_only=True):
             dts = [c for c in row if isinstance(c, (datetime, date))]
             nums = [c for c in row if isinstance(c, (int, float)) and 100 < c < 100000]
             if dts and len(nums) >= 2:
                 d = dts[0].date() if isinstance(dts[0], datetime) else dts[0]
+                if d <= today:
+                    hist[d.isoformat()] = [min(nums[:2]), max(nums[:2])]
                 if d <= today and (best is None or d > best[0]):
                     best = (d, min(nums[:2]), max(nums[:2]))
     if not best:
         raise RuntimeError("no se encontró la fila de hoy en el Excel de bandas")
+    corte = (today - timedelta(days=400)).isoformat()
+    write_json(HIST / "bandas.json", {d: v for d, v in sorted(hist.items()) if d >= corte})
     return {"fecha": best[0].isoformat(), "piso": best[1], "techo": best[2]}, "BCRA (Excel de bandas, oficial)"
 
 
@@ -1087,6 +1094,34 @@ def condiciones_fin():
     return out, "FRED (ICE BofA, Tesoro de EE.UU., Fed de Chicago)"
 
 
+def tablero_ar():
+    """Contexto histórico de los indicadores argentinos del tablero de riesgo (Resumen): brecha, distancia del
+    mayorista al techo de la banda, reservas y compras del BCRA (suma de 20 ruedas)."""
+    dol = read_json(HIST / "dolares.json", {}) or {}
+    bandas_h = read_json(HIST / "bandas.json", {}) or {}
+    may, ccl = dol.get("mayorista", {}), dol.get("contadoconliqui", {})
+    out = {}
+    out["brecha"] = contexto([(d, (ccl[d] / may[d] - 1) * 100) for d in may if d in ccl and may[d]])
+    techo = sorted((d, v[1]) for d, v in bandas_h.items())
+    def techo_al(d):
+        c = [v for f, v in techo if f <= d]
+        return c[-1] if c else None
+    out["dist_techo"] = contexto([(d, (techo_al(d) / v - 1) * 100) for d, v in may.items() if v and techo_al(d)]) if techo else None
+    try:
+        out["reservas"] = contexto([(d, v) for d, v in _bcra_series(1, days=400) if v])
+    except Exception as e:  # noqa: BLE001
+        log.warning("reservas históricas: %s", e)
+    try:
+        c = [(d, v or 0) for d, v in _bcra_series(78, days=420)]
+        out["compras20"] = contexto([(c[i][0], sum(v for _, v in c[i - 19:i + 1])) for i in range(19, len(c))])
+    except Exception as e:  # noqa: BLE001
+        log.warning("compras históricas: %s", e)
+    out = {k: v for k, v in out.items() if v}
+    if not out:
+        raise RuntimeError("sin datos para el tablero")
+    return out, "argentinadatos (dólares), BCRA (bandas, reservas, compras); cálculo propio"
+
+
 def lecaps_auto():
     """Altas automáticas de LECAPs/BONCAPs: busca condiciones de emisión de los tickers nuevos."""
     import lecaps
@@ -1115,6 +1150,7 @@ if __name__ == "__main__":
         "tamar_terms": tamar_terms,
         "us_macro": us_macro,
         "condiciones_fin": condiciones_fin,
+        "tablero_ar": tablero_ar,
         "fed": fed,
         "treasuries": treasuries,
         "ar_bcra": ar_bcra,

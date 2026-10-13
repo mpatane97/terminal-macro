@@ -10,7 +10,7 @@ import pandas as pd
 import yfinance as yf
 
 import bonds
-from common import (AR_TZ, DATA, HIST, Block, changes_from_series, http_get, load_config, log, now_iso,
+from common import (AR_TZ, DATA, HIST, Block, changes_from_series, contexto, http_get, load_config, log, now_iso,
                     num, pct, read_json, run_blocks, today_ar, write_json)
 
 CFG = load_config("instruments.json")
@@ -91,6 +91,9 @@ def markets():
             ch = changes_from_series(series)
             ultimos = [v for _, v in series[-252:]]
             ch["dd52"] = (ch["last"] / max(ultimos) - 1) * 100 if ultimos else None
+            cx = contexto(series, puntos=30)
+            if cx:
+                ch["p12"], ch["spark"] = cx["pctl12"], cx["serie"]
             rows.append({**_meta(it), **ch})
         out[gname] = rows
     if len(missing) > len(tickers) / 2:
