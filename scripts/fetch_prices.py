@@ -84,7 +84,7 @@ def markets():
         try:
             import fichas
             serie = fichas.merval_byma()
-            vivo = _merval_vivo()
+            vivo = _merval_vivo() if serie else None
             if vivo and serie and vivo[0] > serie[-1][0]:
                 serie.append(vivo)
             elif vivo and serie and vivo[0] == serie[-1][0]:
@@ -136,8 +136,14 @@ def markets():
 
 def _merval_vivo():
     """(fecha, valor) del S&P Merval en el panel de índices de BYMA, o None."""
-    try:
-        filas = _byma_panel("index-price") or []
+    import requests
+    from common import UA
+    try:   # un solo intento corto: si BYMA no responde, la corrida de precios no puede quedar esperando
+        r = requests.post(f"{BYMA_FREE}/index-price", json={"page_size": 500, "Content-Type": "application/json"},
+                          headers={**UA, "Content-Type": "application/json"}, timeout=10)
+        r.raise_for_status()
+        js = r.json()
+        filas = js if isinstance(js, list) else (js.get("data") or [])
     except Exception as e:  # noqa: BLE001
         log.warning("índices BYMA: %s", e)
         return None

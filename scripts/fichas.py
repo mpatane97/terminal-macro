@@ -23,19 +23,19 @@ AR = timezone(timedelta(hours=-3))
 _BYMA_SEM = __import__("threading").Semaphore(4)
 
 
-def historia_byma(simbolo, dias=380, plazo=" 24HS"):
+def historia_byma(simbolo, dias=380, plazo=" 24HS", intentos=3, timeout=25):
     """[(fecha, cierre, volumen)] de la especie en BYMA, plazo 24hs (los índices van sin plazo: plazo="")."""
     import time
     hasta = datetime.now(AR)
     params = {"symbol": f"{simbolo}{plazo}", "resolution": "D",
               "from": int((hasta - timedelta(days=dias)).timestamp()), "to": int(hasta.timestamp())}
-    for intento in range(3):
+    for intento in range(intentos):
         with _BYMA_SEM:
             try:
-                js = http_get(BYMA_HIST, params=params, headers={"Accept": "application/json"}, timeout=25, retries=0)
+                js = http_get(BYMA_HIST, params=params, headers={"Accept": "application/json"}, timeout=timeout, retries=0)
                 break
             except Exception:  # noqa: BLE001
-                if intento == 2:
+                if intento == intentos - 1:
                     raise
         time.sleep(3 * (intento + 1))  # esperar fuera del semáforo, así no frena a los demás
     if not isinstance(js, dict) or js.get("s") != "ok":
@@ -50,17 +50,37 @@ def historia_byma(simbolo, dias=380, plazo=" 24HS"):
 def merval_byma(dias=400):
     """Historia diaria del S&P Merval desde la serie de BYMA (respaldo de Yahoo, que a veces deja de actualizarlo).
     El símbolo del índice en el gráfico de BYMA no está documentado: se prueban los posibles y se acepta el que
-    devuelva una serie larga en el nivel del Merval (millones de puntos)."""
+    devuelva una serie larga en el nivel del Merval (millones de puntos).
+    Se consulta una sola vez por día (history/merval_byma.json), con un intento corto por símbolo: la corrida de
+    precios es cada 15 minutos y BYMA a veces no responde; si falla, no se reintenta hasta el día siguiente."""
+    import json
+    from common import HIST, today_ar
+    arch = HIST / "merval_byma.json"
+    hoy = today_ar().isoformat()
+    try:
+        cache = json.loads(arch.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        cache = {}
+    if cache.get("consulta") == hoy:
+        return [tuple(x) for x in cache.get("serie") or []]
+    serie = []
     for sim in ("M", "MERVAL", "S&P MERVAL", "IMV"):
         try:
-            filas = historia_byma(sim, dias, plazo="")
-        except Exception as e:  # noqa: BLE001
+            filas = historia_byma(sim, dias, plazo="", intentos=1, timeout=12)
+        except Exception as e:  # noqa: BLE001  BYMA no responde: no tiene sentido probar los otros símbolos
             log.warning("Merval BYMA (%s): %s", sim, e)
-            continue
+            break
         vals = sorted(c for _, c, _ in filas)
         if len(filas) > 50 and vals[len(vals) // 2] > 1e5:
-            return [(d, c) for d, c, _ in filas]
-    return []
+            serie = [(d, c) for d, c, _ in filas]
+            log.info("Merval BYMA: símbolo %s, %d ruedas", sim, len(serie))
+            break
+    try:
+        arch.parent.mkdir(parents=True, exist_ok=True)
+        arch.write_text(json.dumps({"consulta": hoy, "serie": serie}), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        log.warning("no pude guardar %s: %s", arch, e)
+    return serie
 
 
 def _valor_al(serie, iso):
