@@ -143,7 +143,7 @@ def fake_get(url, params=None, headers=None, timeout=20, retries=2, as_json=True
         return [{"date": d, "c": v} for d, v in series(300, lvl, lvl * 0.01)]
     if "kalshi" in url:
         mk = lambda s, p: {"floor_strike": s, "strike_type": "greater", "last_price_dollars": str(p)}  # noqa: E731
-        return {"events": [{"event_ticker": "KXFED-26OCT", "title": "Fed funds rate after Oct 2026 meeting", "strike_date": "2026-10-28T18:00:00Z",
+        return {"events": [{"event_ticker": "KXFED-26OCT", "title": "Fed funds rate after Oct 2026 meeting", "strike_date": (datetime.now(timezone.utc) + timedelta(days=20)).strftime("%Y-%m-%dT18:00:00Z"),
                             "markets": [mk(3.25, 0.99), mk(3.5, 0.97), mk(3.75, 0.31), mk(4.0, 0.02)]}]}
     if "stlouisfed.org/fred/series/observations" in url:
         sid = p["series_id"]
@@ -277,6 +277,12 @@ def fake_post(url, json=None, **kw):
     return _Resp({"data": [{"denominacion": "LETRA DEL TESORO NACIONAL CAPITALIZABLE EN PESOS", "moneda": "Pesos",
                             "interes": "Tasa efectiva mensual: 2,30 %", "fechaEmision": "2025-12-15", "fechaVencimiento": None}]})
 lecaps.requests.post = fake_post
+import fichas  # noqa: E402
+fichas.http_get = fake_get   # antes de las corridas: la prueba no debe salir a internet (BYMA real puede tardar minutos)
+import requests  # noqa: E402
+def _sin_red(*a, **k):
+    raise requests.exceptions.ConnectionError("prueba sin red: falta un mock para esta dirección")
+requests.get = _sin_red
 import indec, feriados  # noqa: E402,E401
 indec.http_get = fake_get
 indec.today_ar = lambda: TODAY
@@ -318,8 +324,6 @@ OUT.mkdir(parents=True, exist_ok=True)
 d = common.run_blocks(OUT / "daily.json", {k: getattr(fetch_daily, k) for k in
     ["us_macro", "fed", "treasuries", "ar_bcra", "ipc", "riesgo_pais", "emae", "rem", "bandas", "dolares_hist", "ar_backfill", "calendar_us", "calendar_ar", "calendar_intl", "us_senales", "megacaps_info", "earnings", "lecaps_auto", "cer_auto", "feriados_block", "avisos", "licitaciones_resultado", "tasas_bancos_centrales", "tamar_terms", "panel_general", "condiciones_fin", "tablero_ar", "sorpresas"]})
 p = common.run_blocks(OUT / "prices.json", {k: getattr(fetch_prices, k) for k in ["markets", "dolares", "ar_market", "fed_probs", "cauciones", "news"]})
-import fichas  # noqa: E402
-fichas.http_get = fake_get
 d["fichas_acciones"] = common.run_blocks(OUT / "fichas_run3.json", {"fichas_acciones": fetch_daily.fichas_acciones})["fichas_acciones"]
 d["fichas_empresas"] = common.run_blocks(OUT / "fichas_run2.json", {"fichas_empresas": fetch_daily.fichas_empresas})["fichas_empresas"]
 d["fichas_bonos"] = common.run_blocks(OUT / "fichas_run.json", {"fichas_bonos": fetch_daily.fichas_bonos})["fichas_bonos"]
