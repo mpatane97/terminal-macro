@@ -958,6 +958,7 @@
     for (const r of blk(D, "calendar_ar") || []) ev.push({ t: `${r.fecha}T${r.hora || "00:00"}:00-03:00`, txt: `Argentina · ${r.evento}`, imp: "High" });
     for (const f of (blk(D, "fed") || {}).fomc || []) ev.push({ t: `${f}T15:00:00-03:00`, txt: "Fed · Decisión FOMC", imp: "High" });
     for (const b of ((blk(D, "calendar_intl") || {}).bancos || [])) ev.push({ t: `${b.fecha}T${b.hora || "08:00"}:00-03:00`, txt: `${b.banco} · Decisión de tasa`, imp: "High" });
+    for (const r of ((blk(D, "calendar_intl") || {}).especiales || [])) ev.push({ t: `${r.fecha}T${r.hora || "00:00"}:00-03:00`, txt: `${r.pais ? r.pais + " · " : ""}${r.evento}`, imp: "High" });
     return ev.filter((e) => new Date(e.t) >= (() => { const t0 = new Date(); t0.setHours(0, 0, 0, 0); return t0; })()).sort((a, b) => (new Date(a.t) - new Date(b.t)));
   }
   function eventsList(ev) {
@@ -969,7 +970,7 @@
   }
 
   /* ---------- Calendario unificado: una sola agenda, cada tipo de evento con su color ---------- */
-  const CATS = { us: "Datos EE.UU.", fed: "Fed", ar: "INDEC", lic: "Licitaciones", pago: "Pagos de deuda AR", bc: "Bancos centrales", intl: "Datos internacionales", earn: "Balances", fer: "Feriados" };
+  const CATS = { us: "Datos EE.UU.", fed: "Fed", ar: "INDEC", lic: "Licitaciones", pago: "Pagos de deuda AR", bc: "Bancos centrales", intl: "Datos internacionales", pol: "Política y eventos", earn: "Balances", fer: "Feriados" };
   let calOff = new Set();
   try { calOff = new Set(JSON.parse(localStorage.getItem("calOff") || "[]")); } catch {}
   function agenda() {
@@ -977,12 +978,15 @@
     const ev = [];
     const imp = (x) => (x === "High" ? "alto" : x === "Medium" ? "medio" : "");
     const reales = Object.fromEntries(((blk(D, "sorpresas") || {}).us || []).filter((x) => x.real != null).map((x) => [`${x.evento}|${x.fecha.slice(0, 10)}`, x]));
-    for (const r of blk(D, "calendar_us") || []) { const re = reales[`${r.evento}|${(r.fecha || "").slice(0, 10)}`];
+    const diasEsp = new Set(((blk(D, "calendar_intl") || {}).especiales || []).map((r) => r.fecha));
+    for (const r of blk(D, "calendar_us") || []) { if (/election/i.test(r.evento || "") && diasEsp.has((r.fecha || "").slice(0, 10))) continue;   // ya está como evento especial
+      const re = reales[`${r.evento}|${(r.fecha || "").slice(0, 10)}`];
       ev.push({ cat: "us", t: r.fecha, hora: true, txt: r.evento, det: [re && `real ${re.dec === 0 ? fmt(re.real, 0) + "K" : fmt(re.real, re.dec) + "%"}`, r.esperado && `esp. ${r.esperado}`, r.previo && `prev. ${r.previo}`].filter(Boolean).join(" · "), imp: imp(r.impacto) }); }
     for (const f of (blk(D, "fed") || {}).fomc || []) ev.push({ cat: "fed", t: `${f}T15:00:00-03:00`, hora: true, txt: "Decisión de tasas (FOMC)", det: "", imp: "alto" });
     for (const r of blk(D, "calendar_ar") || []) ev.push({ cat: r.tipo === "licitacion" ? "lic" : r.tipo === "pago" ? "pago" : "ar", t: `${r.fecha}T${r.hora || "12:00"}:00-03:00`, hora: !!r.hora, txt: r.evento, det: "", imp: r.tipo === "pago" ? "" : "alto" });
     const intl = blk(D, "calendar_intl") || {};
     for (const r of intl.bancos || []) ev.push({ cat: "bc", t: `${r.fecha}T${r.hora || "12:00"}:00-03:00`, hora: !!r.hora, txt: `${r.banco} · decisión de tasa`, det: "", imp: "alto" });
+    for (const r of intl.especiales || []) ev.push({ cat: "pol", t: `${r.fecha}T${r.hora || "12:00"}:00-03:00`, hora: !!r.hora, txt: `${r.pais ? r.pais + " · " : ""}${r.evento}`, det: r.detalle || "", imp: "alto" });
     for (const r of intl.datos_semana || []) ev.push({ cat: "intl", t: r.fecha, hora: true, txt: `${r.pais} · ${r.evento}`, det: [r.esperado && `esp. ${r.esperado}`, r.previo && `prev. ${r.previo}`].filter(Boolean).join(" · "), imp: "alto" });
     const fer = blk(D, "feriados") || {};
     for (const r of fer.ar || []) ev.push({ cat: "fer", t: `${r.fecha}T12:00:00-03:00`, hora: false, txt: `Argentina · ${r.nombre}`, det: "BYMA cerrado", imp: "" });
@@ -1481,6 +1485,12 @@
     for (const r of a.cedears || []) if (r.ccl && ccl && Math.abs(r.ccl / ccl - 1) > 0.1) out.push(`${r.ticker}: CCL implícito ${fmt(r.ccl, 0)} lejos del CCL ${fmt(ccl, 0)}`);
     for (const r of cot) if (r.d != null && Math.abs(r.d) > 10) out.push(`Dólar ${r.nombre}: variación del día de ${fmt(r.d, 1)}%`);
     for (const [g, arr] of Object.entries(mk)) for (const r of arr || []) salto(r, g === "cripto" ? 30 : 25, r.nombre);
+    // precios que dejaron de actualizarse: último dato con más de 3 ruedas (días hábiles) de antigüedad
+    const ruedas = (iso) => { let n = 0; const d = new Date(String(iso).slice(0, 10) + "T12:00:00"), hoy = new Date();
+      for (d.setDate(d.getDate() + 1); d <= hoy; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) n++; return n; };
+    for (const arr of Object.values(mk)) for (const r of arr || []) if (r.date && ruedas(r.date) > 3) out.push(`${r.nombre}: último dato del ${dmy(r.date)} (la fuente no lo actualiza)`);
+    const mu = (blk(D, "fichas_acciones") || {}).merval_usd;
+    if (mu && mu.fecha && ruedas(mu.fecha) > 3) out.push(`Merval en dólares: último dato del ${dmy(mu.fecha)}`);
     for (const c of blk(P, "cauciones") || []) if (c.tna != null && (c.tna < 2 || c.tna > 150)) out.push(`Caución a ${c.plazo} días: TNA de ${fmt(c.tna, 2)}% fuera de rango`);
     const rp = blk(D, "riesgo_pais") || {};
     if (rp.d != null && Math.abs(rp.d) > 25) out.push(`Riesgo país: variación del día de ${fmt(rp.d, 1)}%`);
