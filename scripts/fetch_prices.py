@@ -3,7 +3,7 @@ probabilidades de la Fed y noticias. Escribe docs/data/prices.json."""
 import calendar
 import re
 import unicodedata
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import feedparser
 import pandas as pd
@@ -70,14 +70,39 @@ def markets():
             s = pd.Series(dtype=float)
         if not s.empty:
             series_por[t] = [(d.strftime("%Y-%m-%d"), float(v)) for d, v in s.items()]
+    # serie que dejó de actualizarse (Yahoo a veces congela un símbolo, pasó con el Merval): se trata como faltante
+    viejo = (today_ar() - timedelta(days=6)).isoformat()
+    congelados = [t for t, sr in series_por.items() if sr[-1][0] < viejo]
+    if congelados:
+        log.warning("Yahoo sin datos recientes para %s", congelados)
+    respaldo = {}
+    for t in congelados:
+        respaldo[t] = series_por.pop(t)
     faltan = [t for t in tickers if t not in series_por]
-    de_stooq = []
+    de_stooq, de_byma = [], []
+    if "^MERV" in faltan:   # Merval: la serie de BYMA, con el valor del momento del panel de índices
+        try:
+            import fichas
+            serie = fichas.merval_byma()
+            vivo = _merval_vivo()
+            if vivo and serie and vivo[0] > serie[-1][0]:
+                serie.append(vivo)
+            elif vivo and serie and vivo[0] == serie[-1][0]:
+                serie[-1] = vivo
+            if serie and serie[-1][0] >= viejo:
+                series_por["^MERV"] = serie
+                de_byma.append("^MERV")
+                faltan.remove("^MERV")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Merval BYMA: %s", e)
     if faltan:
         with ThreadPoolExecutor(max_workers=8) as ex:
             for t, serie in zip(faltan, ex.map(_stooq, faltan)):
-                if serie:
+                if serie and (t not in respaldo or serie[-1][0] > respaldo[t][-1][0]):
                     series_por[t] = serie
                     de_stooq.append(t)
+    for t, sr in respaldo.items():   # sin nada más nuevo: queda la serie vieja (la página avisa por la fecha)
+        series_por.setdefault(t, sr)
     out = {}
     missing = []
     for gname, items in groups.items():
@@ -104,7 +129,27 @@ def markets():
     if de_stooq:
         fuente += f" · respaldo Stooq para {len(de_stooq)} símbolo(s)"
         log.warning("Stooq usado para: %s", de_stooq)
+    if de_byma:
+        fuente += " · Merval: BYMA"
     return out, fuente
+
+
+def _merval_vivo():
+    """(fecha, valor) del S&P Merval en el panel de índices de BYMA, o None."""
+    try:
+        filas = _byma_panel("index-price") or []
+    except Exception as e:  # noqa: BLE001
+        log.warning("índices BYMA: %s", e)
+        return None
+    def es_merval(it):
+        txt = f"{it.get('symbol', '')} {it.get('description', '')}".upper()
+        return it.get("symbol") == "M" or re.fullmatch(r"\s*(S&P\s*)?MERVAL\s*", str(it.get("description") or "").upper()) or (
+            "MERVAL" in txt and not re.search(r"ARGENTINA|GENERAL|BURCAP|\bM\.AR\b", txt))
+    for it in filas:
+        v = num(it.get("price") or it.get("trade") or it.get("closingPrice"))
+        if es_merval(it) and v and v > 1e5:
+            return today_ar().isoformat(), v
+    return None
 
 
 def _meta(it):

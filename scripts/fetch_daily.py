@@ -664,7 +664,11 @@ def _ff_semana():
 
 
 def calendar_intl():
-    rows = _ff_semana()
+    try:
+        rows = _ff_semana()
+    except Exception as e:  # noqa: BLE001  sin Forex Factory igual salen bancos centrales y eventos especiales
+        log.warning("Forex Factory: %s", e)
+        rows = []
     nombres = {"EUR": "Eurozona", "GBP": "Reino Unido", "JPY": "Japón", "CNY": "China"}
     datos = [{"fecha": r.get("date"), "pais": nombres[r["country"]], "evento": r.get("title"),
               "esperado": r.get("forecast") or None, "previo": r.get("previous") or None}
@@ -674,7 +678,14 @@ def calendar_intl():
     bancos = [{"fecha": f, "hora": v.get("hora"), "banco": k}
               for k, v in CFG.get("bancos_centrales", {}).items() if not k.startswith("_") for f in v["fechas"] if f >= hoy]
     bancos.sort(key=lambda r: r["fecha"])
-    return {"datos_semana": datos, "bancos": bancos}, "Forex Factory (datos) y bancos centrales (fechas oficiales)"
+    # eventos especiales cargados a mano (elecciones, etc.): config/eventos.json
+    try:
+        esp = load_config("eventos.json").get("eventos") or []
+    except Exception as e:  # noqa: BLE001
+        log.warning("config/eventos.json: %s", e)
+        esp = []
+    esp = sorted((e for e in esp if e.get("fecha", "") >= hoy), key=lambda e: e["fecha"])
+    return {"datos_semana": datos, "bancos": bancos, "especiales": esp}, "Forex Factory (datos), bancos centrales (fechas oficiales) y eventos cargados a mano"
 
 
 # ---------- Calendario y earnings ----------

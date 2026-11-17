@@ -124,6 +124,12 @@ def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6, extra=(), nombres=Non
     adrs = {t: emp[t]["adr"] for t in tickers if emp.get(t, {}).get("adr")}
     yh = empresas.historias(set(adrs.values()) | {"^MERV"})
     merval = [(d, c) for d, c, _ in yh.get("^MERV", [])]
+    # Yahoo a veces congela el Merval: si su último dato tiene más de 6 días, se usa la serie de BYMA
+    if not merval or merval[-1][0] < (datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d"):
+        log.warning("Merval de Yahoo sin datos recientes (%s); uso BYMA", merval[-1][0] if merval else "vacío")
+        mb = fichas.merval_byma()
+        if mb and (not merval or mb[-1][0] > merval[-1][0]):
+            merval = mb
 
     # cada acción en dólares CCL, para armar los promedios de sector
     usd = {}

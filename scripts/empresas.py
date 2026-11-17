@@ -261,7 +261,8 @@ def armar(items, carpeta, finnhub_key=None, hilos=6):
     avisos = [f"Ficha de {x}: Yahoo no devolvió datos" for x in sin]
     for it in items:
         i = yahoo[it["id"]].get("info") or {}
-        for k, lo, hi, nom in (("pe", 0, 500, "P/E"), ("pe_fwd", 0, 300, "P/E proyectado"), ("p_libro", 0, 200, "precio/valor libro")):
+        # límites amplios: empresas que ganan muy poco (SPCX) tienen P/E de cientos y es real; esto busca datos rotos
+        for k, lo, hi, nom in (("pe", 0, 2000, "P/E"), ("pe_fwd", 0, 1000, "P/E proyectado"), ("p_libro", 0, 200, "precio/valor libro")):
             if i.get(k) is not None and not lo < i[k] < hi:
                 avisos.append(f"{it['id']}: {nom} de {i[k]:,.1f}, fuera de rango")
     return {"empresas": hechas, "caps": caps, "avisos": avisos, "sin_datos": sin, "respaldo_finnhub": respaldo,

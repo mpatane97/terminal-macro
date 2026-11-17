@@ -23,11 +23,11 @@ AR = timezone(timedelta(hours=-3))
 _BYMA_SEM = __import__("threading").Semaphore(4)
 
 
-def historia_byma(simbolo, dias=380):
-    """[(fecha, cierre, volumen)] de la especie en BYMA, plazo 24hs."""
+def historia_byma(simbolo, dias=380, plazo=" 24HS"):
+    """[(fecha, cierre, volumen)] de la especie en BYMA, plazo 24hs (los índices van sin plazo: plazo="")."""
     import time
     hasta = datetime.now(AR)
-    params = {"symbol": f"{simbolo} 24HS", "resolution": "D",
+    params = {"symbol": f"{simbolo}{plazo}", "resolution": "D",
               "from": int((hasta - timedelta(days=dias)).timestamp()), "to": int(hasta.timestamp())}
     for intento in range(3):
         with _BYMA_SEM:
@@ -45,6 +45,22 @@ def historia_byma(simbolo, dias=380):
         if c:
             out.append((datetime.fromtimestamp(t, AR).date().isoformat(), float(c), float(v) if v else None))
     return out
+
+
+def merval_byma(dias=400):
+    """Historia diaria del S&P Merval desde la serie de BYMA (respaldo de Yahoo, que a veces deja de actualizarlo).
+    El símbolo del índice en el gráfico de BYMA no está documentado: se prueban los posibles y se acepta el que
+    devuelva una serie larga en el nivel del Merval (millones de puntos)."""
+    for sim in ("M", "MERVAL", "S&P MERVAL", "IMV"):
+        try:
+            filas = historia_byma(sim, dias, plazo="")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Merval BYMA (%s): %s", sim, e)
+            continue
+        vals = sorted(c for _, c, _ in filas)
+        if len(filas) > 50 and vals[len(vals) // 2] > 1e5:
+            return [(d, c) for d, c, _ in filas]
+    return []
 
 
 def _valor_al(serie, iso):
