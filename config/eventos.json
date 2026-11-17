@@ -1,0 +1,12 @@
+{
+  "_nota": "Eventos especiales cargados a mano (elecciones, cumbres, etc.). fecha AAAA-MM-DD, hora de Argentina (opcional), pais, evento y un detalle corto (una línea). Se muestran en el Calendario (Política y eventos) y en Próximos eventos del Resumen.",
+  "eventos": [
+    {
+      "fecha": "2026-11-03",
+      "hora": "21:00",
+      "pais": "EE.UU.",
+      "evento": "Elecciones de medio término",
+      "detalle": "Toda la Cámara de Representantes y un tercio del Senado · resultados desde la noche"
+    }
+  ]
+}
