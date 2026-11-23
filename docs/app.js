@@ -873,9 +873,11 @@
     const m = meta(P, "ar_market");
     const mu = (blk(D, "fichas_acciones") || {}).merval_usd, muHoy = mv.last && ccl ? mv.last / ccl : null;
     // percentil con el valor de hoy contra la muestra de 12 meses (mínimo y máximo de la corrida diaria)
-    const muPos = mu && mu.pctl12 != null ? `<span title="Dónde está el Merval en dólares dentro de su rango de los últimos 12 meses (0 = mínimo, 100 = máximo). Rango: ${fmt(mu.min12, 0)} – ${fmt(mu.max12, 0)}"><b>Percentil 12 m</b> ${fmt(mu.pctl12, 0)} <span class="na">(${fmt(mu.min12, 0)} – ${fmt(mu.max12, 0)})</span> ${spark(mu.serie)}</span>` : "";
-    const head = `<div class="strip"><span><b>Merval</b> ${fmt(mv.last, 0)} ${chg(mv.d)} <span class="na">mes</span> ${chg(mv.m)} <span class="na">año</span> ${chg(mv.y)}</span>
-      <span><b>Merval en USD (CCL)</b> ${muHoy ? fmt(muHoy, 0) : "—"}${mu && mu.d_mes_pct != null ? ` <span class="na">mes</span> ${chg(mu.d_mes_pct, 1)}` : ""}</span>${muPos}</div>`;
+    const muPos = mu && mu.pctl12 != null ? `<span title="Dónde está el Merval en dólares dentro de su rango de los últimos 12 meses (0 = mínimo, 100 = máximo). Rango: ${fmt(mu.min12, mu.max12 < 1000 ? 1 : 0)} – ${fmt(mu.max12, mu.max12 < 1000 ? 1 : 0)}"><b>Percentil 12 m</b> ${fmt(mu.pctl12, 0)} <span class="na">(${fmt(mu.min12, mu.max12 < 1000 ? 1 : 0)} – ${fmt(mu.max12, mu.max12 < 1000 ? 1 : 0)})</span> ${spark(mu.serie)}</span>` : "";
+    const etf = arm.etf_merval;
+    const head = `<div class="strip"><span title="Desde el 19/10/2026 el Merval lo calcula MSCI (base 100.000). Hasta el 16/10 se usa el S&P Merval llevado a esa base, para no perder la historia."><b>MSCI Merval</b> ${fmt(mv.last, 0)} ${chg(mv.d)} <span class="na">mes</span> ${chg(mv.m)} <span class="na">año</span> ${chg(mv.y)}</span>
+      ${etf ? `<span title="gForce MSCI Merval ETF (Galicia / Fondos Fima): replica el MSCI Merval; cotiza en BYMA en pesos"><b>ETF MERV</b> $ ${fmt(etf.precio, 2)} ${chg(etf.d)}${etf.m != null ? ` <span class="na">mes</span> ${chg(etf.m)}` : ""}</span>` : ""}
+      <span><b>Merval en USD (CCL)</b> ${muHoy ? fmt(muHoy, muHoy < 1000 ? 1 : 0) : "—"}${mu && mu.d_mes_pct != null ? ` <span class="na">mes</span> ${chg(mu.d_mes_pct, 1)}` : ""}</span>${muPos}</div>`;
     // monto del día en dólares CCL y volumen relativo (hoy contra el promedio de las 20 ruedas anteriores)
     const montoHoy = (r) => (r.vol && r.precio && ccl ? r.vol * r.precio / ccl : null);
     const montoTxt = (r) => { const v = montoHoy(r); return v == null ? "—" : `US$ ${fmt(v / 1e6, v < 1e5 ? 2 : 1)} M`; };
@@ -1514,13 +1516,16 @@
   const rueda = () => `<div class="strip rueda"><span><b>BYMA</b> ${esc(estadoRueda())}</span></div>`;
 
   function render() {
+    // CEDEAR que apareció solo (empresa sin CEDEAR cargado cuyo ticker ya cotiza en BYMA)
+    const cAuto = (blk(P, "ar_market") || {}).cedear_auto || {};
+    for (const arr of Object.values(blk(P, "markets") || {})) for (const r of arr || []) if (!r.cedear && cAuto[r.id]) r.cedear = cAuto[r.id];
     try { $("#view").innerHTML = VIEWS[current](); }
     catch (e) { $("#view").innerHTML = `<div class="empty">Error al dibujar la pestaña: ${esc(e.message)}</div>`; console.error(e); }
     document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.v === current));
     const stale = [...Object.entries(P), ...Object.entries(D)].filter(([k, v]) => v && v.stale).map(([k]) => NOMBRES[k] || k);
     const prob = [...problemas(), ...revisar(), ...sospechosos()];
     $("#status").innerHTML = `<span>Precios ${hhmm(P.generated)}</span><span>Diario ${hhmm(D.generated)}</span>`
-      + (prob.length ? `<button class="alerta" title="${esc(prob.join("\n"))}" aria-label="Datos a revisar">! ${prob.length === 1 ? "1 dato a revisar" : `${prob.length} datos a revisar`}</button>`
+      + (current !== "resumen" ? "" : prob.length ? `<button class="alerta" title="${esc(prob.join("\n"))}" aria-label="Datos a revisar">! ${prob.length === 1 ? "1 dato a revisar" : `${prob.length} datos a revisar`}</button>`
         : stale.length ? `<span class="bad" title="${esc(stale.join(", "))}">${stale.length} fuente(s) sin responder en la última corrida</span>` : "");
   }
 
