@@ -89,7 +89,9 @@ def markets():
             vivo, de_merval = _merval_vivo(), "BYMA"
             if not vivo:
                 vivo, de_merval = _merval_rava(), "Rava"
-            if vivo and feriados.es_habil(today_ar()) and fichas.escala_msci(vivo[1]):
+            if vivo and not feriados.es_habil(today_ar()):   # feriado o fin de semana: es el cierre de la última rueda
+                vivo = (feriados.sumar_habiles(today_ar(), -1).isoformat(), vivo[1])
+            if vivo and fichas.escala_msci(vivo[1]):
                 g = fichas.merval_guardado()
                 g[vivo[0]] = vivo[1]
                 fichas.guardar_merval(g)
@@ -155,25 +157,46 @@ def markets():
 DIAG = {}
 
 
+def _rava_titulo(nombre):
+    """(valor, variación %) del título de la página pública de Rava: 'MERVAL Indice Merval $81.255 (0,00%) | ...'.
+    El número puede venir sin decimales. Devuelve también el título, para el diagnóstico."""
+    html = http_get(f"https://www.rava.com/perfil/{nombre}", as_json=False, timeout=15, retries=0).text
+    t = re.search(r"<title>([^<]*)</title>", html, re.I)
+    titulo = t.group(1).strip()[:160] if t else f"sin título ({len(html)} caracteres)"
+    m = re.search(r"\$\s*([\d.]+(?:,\d+)?)\s*\(([+-]?[\d.,]+)\s*%\)", titulo)
+    if not m:
+        return None, None, titulo
+    a_num = lambda x: float(x.replace(".", "").replace(",", "."))  # noqa: E731
+    return a_num(m.group(1)), a_num(m.group(2)), titulo
+
+
 def _merval_rava():
-    """(fecha, valor) del MSCI Merval desde la página pública de Rava, que lo muestra en el título igual que las
-    cauciones: '... $101.234,56 (-1,23%)'. Respaldo cuando Yahoo y BYMA no lo dan. Se prueban los nombres posibles
-    de la página y se anota el título de cada una en el diagnóstico."""
-    for nombre in ("MERVAL", "MSCI%20MERVAL", "IMV", "M"):
-        try:
-            html = http_get(f"https://www.rava.com/perfil/{nombre}", as_json=False, timeout=15, retries=0).text
-        except Exception as e:  # noqa: BLE001
-            DIAG.setdefault("rava", {})[nombre] = f"error: {str(e)[-120:]}"
-            continue
-        t = re.search(r"<title>([^<]*)</title>", html, re.I)
-        DIAG.setdefault("rava", {})[nombre] = (t.group(1).strip()[:160] if t else f"sin título ({len(html)} caracteres)")
-        m = re.search(r"<title>[^<]*?\$?\s*([\d.]+,\d+)\s*\(([+-]?[\d.,]+)\s*%\)", html, re.I)
-        if m:
-            v = float(m.group(1).replace(".", "").replace(",", "."))
-            if 2e4 < v < 1e6:   # escala del MSCI Merval (base 100.000)
-                return today_ar().isoformat(), v
-    log.warning("Merval Rava: no encontré el valor (%s)", DIAG.get("rava"))
+    """(fecha, valor) del MSCI Merval desde la página pública de Rava (perfil/MERVAL). Respaldo cuando Yahoo y BYMA
+    no lo dan. Se anota el título leído en el diagnóstico."""
+    try:
+        v, _, titulo = _rava_titulo("MERVAL")
+        DIAG.setdefault("rava", {})["MERVAL"] = titulo
+    except Exception as e:  # noqa: BLE001
+        DIAG.setdefault("rava", {})["MERVAL"] = f"error: {str(e)[-120:]}"
+        log.warning("Merval Rava: %s", e)
+        return None
+    if v and 2e4 < v < 1e6:   # escala del MSCI Merval (base 100.000)
+        return today_ar().isoformat(), v
+    log.warning("Merval Rava: valor no reconocido en '%s'", titulo)
     return None
+
+
+def _etf_rava():
+    """Fila del ETF del MSCI Merval (símbolo MERV) desde Rava, cuando data912 no lo tiene."""
+    try:
+        v, var, titulo = _rava_titulo("MERV")
+        DIAG.setdefault("rava", {})["MERV"] = titulo
+    except Exception as e:  # noqa: BLE001
+        DIAG.setdefault("rava", {})["MERV"] = f"error: {str(e)[-120:]}"
+        return None
+    if not v or re.search(r"[IÍ]ndice", titulo, re.I):   # que no sea la página del índice
+        return None
+    return {"symbol": "MERV", "c": v, "pct_change": var, "v": None}
 
 
 def _merval_vivo():
@@ -518,6 +541,8 @@ def ar_market():
                     break
             except Exception as ex:  # noqa: BLE001
                 DIAG.setdefault("d912_rutas", {})[path] = f"error: {str(ex)[-80:]}"
+        if not e:
+            e = _etf_rava()
     etf = {"ticker": "MERV", "precio": num(e.get("c")), "d": num(e.get("pct_change")), "vol": _vol(e),
            **_chg(hist, "MERV", num(e.get("c")))} if e and num(e.get("c")) else None
     # guardar cierres del día para calcular variaciones semanales/mensuales/anuales (sólo días hábiles)
@@ -532,7 +557,8 @@ def ar_market():
         if r.get("precio"):
             hist.setdefault(r["ticker"], {})[today] = r["precio"]
     write_json(HIST / "ar_closes.json", _trim(hist))
-    write_json(HIST / "diagnostico_etf.json", {"fecha": now_iso(), "d912_con_MERV": DIAG.get("d912_con_MERV"), "d912_rutas": DIAG.get("d912_rutas")})
+    write_json(HIST / "diagnostico_etf.json", {"fecha": now_iso(), "d912_con_MERV": DIAG.get("d912_con_MERV"), "d912_rutas": DIAG.get("d912_rutas"),
+                                               "rava_MERV": (DIAG.get("rava") or {}).get("MERV"), "etf": etf})
 
     # papeles vencidos: dejan de mostrarse solos (aunque sigan en la lista de config/instruments.json)
     def vigente(r):
