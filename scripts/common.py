@@ -195,3 +195,38 @@ def contexto(serie, puntos=40):
             "pctl12": sum(1 for x in u12 if x <= v) / len(u12) * 100 if u12 else None,
             "min12": min(u12) if u12 else None, "max12": max(u12) if u12 else None,
             "serie": [round(x, 4) for x in muestra]}
+
+
+class Cortacircuito:
+    """Deja de consultar una fuente que no responde. BYMA a veces no contesta los pedidos que salen de GitHub y
+    cada uno espera hasta el límite de tiempo: con cien papeles, la corrida diaria superaba los 20 minutos y GitHub
+    la cancelaba sin guardar nada. Después de `max_fallas` errores de red seguidos, el resto de la corrida no lo
+    consulta (cada bloque usa su respaldo: data912, cierres guardados, etc.). Una respuesta buena reinicia la cuenta."""
+
+    def __init__(self, nombre, max_fallas=4):
+        import threading
+        self.nombre, self.max_fallas, self.fallas, self._lock = nombre, max_fallas, 0, threading.Lock()
+
+    def abierto(self):
+        return self.fallas >= self.max_fallas
+
+    def control(self):
+        if self.abierto():
+            raise RuntimeError(f"{self.nombre} no responde: no se consulta más en esta corrida")
+
+    def ok(self):
+        with self._lock:
+            self.fallas = 0 if not self.abierto() else self.fallas
+
+    def falla(self, e):
+        """Cuenta sólo errores de red (tiempo agotado, conexión rechazada); un papel inexistente no cuenta."""
+        txt = f"{type(e).__name__} {e}"
+        if not any(x in txt for x in ("Timeout", "timed out", "Connection", "connect", "Max retries", "503", "502", "504")):
+            return
+        with self._lock:
+            self.fallas += 1
+            if self.fallas == self.max_fallas:
+                log.warning("%s: %d errores de red seguidos; no se consulta más en esta corrida", self.nombre, self.fallas)
+
+
+BYMA_CC = Cortacircuito("BYMA")

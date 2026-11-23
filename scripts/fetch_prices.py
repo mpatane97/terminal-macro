@@ -80,21 +80,32 @@ def markets():
         respaldo[t] = series_por.pop(t)
     faltan = [t for t in tickers if t not in series_por]
     de_stooq, de_byma = [], []
-    if "^MERV" in faltan:   # Merval: la serie de BYMA, con el valor del momento del panel de índices
+    if "^MERV" in faltan:
+        # Merval sin Yahoo: historia de BYMA si responde; valor del momento de BYMA o, si no, de Rava. Cada valor del
+        # momento se guarda (history/merval.json), así la serie sigue completa aunque Yahoo no vuelva.
+        import feriados
+        import fichas
+        serie = []
         try:
-            import fichas
             serie = fichas.merval_byma()
-            vivo = _merval_vivo() if serie else None
-            if vivo and serie and vivo[0] > serie[-1][0]:
-                serie.append(vivo)
-            elif vivo and serie and vivo[0] == serie[-1][0]:
-                serie[-1] = vivo
-            if serie and serie[-1][0] >= viejo:
-                series_por["^MERV"] = serie
-                de_byma.append("^MERV")
-                faltan.remove("^MERV")
         except Exception as e:  # noqa: BLE001
             log.warning("Merval BYMA: %s", e)
+        vivo, de = (_merval_vivo(), "BYMA") if serie else (None, None)
+        if not vivo:
+            vivo, de = _merval_rava(), "Rava"
+            de = de if vivo else None
+        guardado = fichas.merval_guardado()
+        if vivo and feriados.es_habil(today_ar()):
+            guardado[vivo[0]] = vivo[1]
+            fichas.guardar_merval(guardado)
+        junta = dict(respaldo.get("^MERV") or [])
+        junta.update(dict(serie))
+        junta.update(guardado)
+        junta = sorted(junta.items())
+        if junta and junta[-1][0] >= viejo:
+            series_por["^MERV"] = junta
+            de_byma.append(f"BYMA" if serie else de or "valores guardados")
+            faltan.remove("^MERV")
     if faltan:
         with ThreadPoolExecutor(max_workers=8) as ex:
             for t, serie in zip(faltan, ex.map(_stooq, faltan)):
@@ -130,8 +141,24 @@ def markets():
         fuente += f" · respaldo Stooq para {len(de_stooq)} símbolo(s)"
         log.warning("Stooq usado para: %s", de_stooq)
     if de_byma:
-        fuente += " · Merval: BYMA"
+        fuente += f" · Merval: {de_byma[0]} (Yahoo sin actualizar)"
     return out, fuente
+
+
+def _merval_rava():
+    """(fecha, valor) del Merval desde la página pública de Rava, que lo muestra en el título igual que las cauciones:
+    '... $2.848.945,25 (-1,23%)'. Respaldo cuando Yahoo y BYMA no lo dan."""
+    try:
+        html = http_get("https://www.rava.com/perfil/MERVAL", as_json=False, timeout=20, retries=1).text
+    except Exception as e:  # noqa: BLE001
+        log.warning("Merval Rava: %s", e)
+        return None
+    m = re.search(r"<title>[^<]*?\$?\s*([\d.]+,\d+)\s*\(([+-]?[\d.,]+)\s*%\)", html, re.I)
+    if not m:
+        log.warning("Merval Rava: no encontré el valor en la página")
+        return None
+    v = float(m.group(1).replace(".", "").replace(",", "."))
+    return (today_ar().isoformat(), v) if v > 1e5 else None
 
 
 def _merval_vivo():
@@ -221,18 +248,22 @@ RESPALDOS = set()  # qué listas vinieron de BYMA en esta corrida
 def _byma_panel(panel):
     import requests
     from common import UA
+    from common import BYMA_CC
     verify = True
     for intento in range(2):
+        BYMA_CC.control()
         try:
             r = requests.post(f"{BYMA_FREE}/{panel}", json={"page_size": 5000, "Content-Type": "application/json"},
                               headers={**UA, "Content-Type": "application/json"}, timeout=25, verify=verify)
             r.raise_for_status()
+            BYMA_CC.ok()
             js = r.json()
             return js if isinstance(js, list) else (js.get("data") or [])
         except requests.exceptions.SSLError:
             verify = False
         except Exception as e:  # noqa: BLE001
-            if intento:
+            BYMA_CC.falla(e)
+            if intento or BYMA_CC.abierto():
                 raise
             log.warning("BYMA %s: %s", panel, e)
 

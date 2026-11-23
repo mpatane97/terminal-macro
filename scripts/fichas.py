@@ -23,19 +23,23 @@ AR = timezone(timedelta(hours=-3))
 _BYMA_SEM = __import__("threading").Semaphore(4)
 
 
-def historia_byma(simbolo, dias=380, plazo=" 24HS", intentos=3, timeout=25):
+def historia_byma(simbolo, dias=380, plazo=" 24HS", intentos=3, timeout=15):
     """[(fecha, cierre, volumen)] de la especie en BYMA, plazo 24hs (los índices van sin plazo: plazo="")."""
     import time
     hasta = datetime.now(AR)
     params = {"symbol": f"{simbolo}{plazo}", "resolution": "D",
               "from": int((hasta - timedelta(days=dias)).timestamp()), "to": int(hasta.timestamp())}
+    from common import BYMA_CC
     for intento in range(intentos):
+        BYMA_CC.control()
         with _BYMA_SEM:
             try:
                 js = http_get(BYMA_HIST, params=params, headers={"Accept": "application/json"}, timeout=timeout, retries=0)
+                BYMA_CC.ok()
                 break
-            except Exception:  # noqa: BLE001
-                if intento == intentos - 1:
+            except Exception as e:  # noqa: BLE001
+                BYMA_CC.falla(e)
+                if intento == intentos - 1 or BYMA_CC.abierto():
                     raise
         time.sleep(3 * (intento + 1))  # esperar fuera del semáforo, así no frena a los demás
     if not isinstance(js, dict) or js.get("s") != "ok":
@@ -45,6 +49,25 @@ def historia_byma(simbolo, dias=380, plazo=" 24HS", intentos=3, timeout=25):
         if c:
             out.append((datetime.fromtimestamp(t, AR).date().isoformat(), float(c), float(v) if v else None))
     return out
+
+
+def merval_guardado():
+    """{fecha: valor} del Merval guardados por la corrida de precios cuando Yahoo no lo actualiza."""
+    import json
+    from common import HIST
+    try:
+        return json.loads((HIST / "merval.json").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def guardar_merval(valores):
+    import json
+    from common import HIST
+    from datetime import date as _d
+    corte = (_d.today() - timedelta(days=400)).isoformat()
+    HIST.mkdir(parents=True, exist_ok=True)
+    (HIST / "merval.json").write_text(json.dumps(dict(sorted((k, v) for k, v in valores.items() if k >= corte))), encoding="utf-8")
 
 
 def merval_byma(dias=400):

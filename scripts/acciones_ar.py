@@ -127,10 +127,14 @@ def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6, extra=(), nombres=Non
     # Yahoo a veces congela el Merval: si su último dato tiene más de 6 días, se usa la serie de BYMA
     ref = ccl[-1][0] if ccl else datetime.now().strftime("%Y-%m-%d")   # fecha del último CCL: misma vara que el resto
     if not merval or merval[-1][0] < (datetime.strptime(ref[:10], "%Y-%m-%d") - timedelta(days=6)).strftime("%Y-%m-%d"):
-        log.warning("Merval de Yahoo sin datos recientes (%s); uso BYMA", merval[-1][0] if merval else "vacío")
-        mb = fichas.merval_byma()
-        if mb and (not merval or mb[-1][0] > merval[-1][0]):
-            merval = mb
+        log.warning("Merval de Yahoo sin datos recientes (%s); completo con BYMA y valores guardados", merval[-1][0] if merval else "vacío")
+        junta = dict(merval)
+        try:
+            junta.update(dict(fichas.merval_byma()))
+        except Exception as e:  # noqa: BLE001
+            log.warning("Merval BYMA: %s", e)
+        junta.update(fichas.merval_guardado())   # valores del momento que guarda la corrida de precios (BYMA o Rava)
+        merval = sorted(junta.items())
 
     # cada acción en dólares CCL, para armar los promedios de sector
     usd = {}

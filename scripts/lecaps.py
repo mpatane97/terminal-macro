@@ -55,18 +55,22 @@ def pago_final(tem, emision, vto):
 # ---------- BYMA ----------
 
 def ficha_byma(symbol, intentos=3):
+    from common import BYMA_CC
     verify = True
     for intento in range(intentos):
+        BYMA_CC.control()
         try:
             r = requests.post(BYMA, json={"symbol": symbol, "Content-Type": "application/json"},
                               headers={**UA, "Content-Type": "application/json"}, timeout=15, verify=verify)
             r.raise_for_status()
+            BYMA_CC.ok()
             data = (r.json() or {}).get("data") or []
             return data[0] if data else None
         except requests.exceptions.SSLError:
             verify = False
         except Exception as e:  # noqa: BLE001
-            if intento == intentos - 1:
+            BYMA_CC.falla(e)
+            if intento == intentos - 1 or BYMA_CC.abierto():
                 raise
             log.warning("ficha BYMA %s: %s", symbol, e)
         if intento < intentos - 1:
