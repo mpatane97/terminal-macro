@@ -70,42 +70,46 @@ def markets():
             s = pd.Series(dtype=float)
         if not s.empty:
             series_por[t] = [(d.strftime("%Y-%m-%d"), float(v)) for d, v in s.items()]
-    # serie que dejó de actualizarse (Yahoo a veces congela un símbolo, pasó con el Merval): se trata como faltante
     viejo = (today_ar() - timedelta(days=6)).isoformat()
-    congelados = [t for t, sr in series_por.items() if sr[-1][0] < viejo]
+    # Merval: desde el 19/10/2026 es el MSCI Merval (base 100.000); Yahoo quedó con el S&P Merval del 16/10.
+    # Se arma la serie encadenada (scripts/fichas.py); el valor del índice nuevo sale de BYMA o, si no, de Rava, y cada
+    # valor del momento se guarda en history/merval.json para que la serie siga completa.
+    de_merval = None
+    if "^MERV" in tickers:
+        import feriados
+        import fichas
+        yahoo_mv = series_por.pop("^MERV", [])
+        nuevos_y = [x for x in yahoo_mv if x[0] > fichas.MERVAL_FIN_SP and fichas.escala_msci(x[1])]
+        hist_byma = []
+        if not nuevos_y or nuevos_y[-1][0] < viejo:
+            try:
+                hist_byma = fichas.merval_byma()
+            except Exception as e:  # noqa: BLE001
+                log.warning("Merval BYMA: %s", e)
+            vivo, de_merval = _merval_vivo(), "BYMA"
+            if not vivo:
+                vivo, de_merval = _merval_rava(), "Rava"
+            if vivo and feriados.es_habil(today_ar()) and fichas.escala_msci(vivo[1]):
+                g = fichas.merval_guardado()
+                g[vivo[0]] = vivo[1]
+                fichas.guardar_merval(g)
+            elif not vivo:
+                de_merval = "BYMA" if hist_byma else "valores guardados"
+        else:
+            de_merval = "Yahoo"
+        serie_mv = fichas.merval_msci(yahoo_mv, hist_byma)
+        if serie_mv:
+            series_por["^MERV"] = serie_mv
+    # serie que dejó de actualizarse (Yahoo a veces congela un símbolo): se busca en Stooq; si no hay nada más nuevo,
+    # queda la vieja y la página avisa por la fecha
+    congelados = [t for t, sr in series_por.items() if sr[-1][0] < viejo and t != "^MERV"]
     if congelados:
         log.warning("Yahoo sin datos recientes para %s", congelados)
     respaldo = {}
     for t in congelados:
         respaldo[t] = series_por.pop(t)
-    faltan = [t for t in tickers if t not in series_por]
-    de_stooq, de_byma = [], []
-    if "^MERV" in faltan:
-        # Merval sin Yahoo: historia de BYMA si responde; valor del momento de BYMA o, si no, de Rava. Cada valor del
-        # momento se guarda (history/merval.json), así la serie sigue completa aunque Yahoo no vuelva.
-        import feriados
-        import fichas
-        serie = []
-        try:
-            serie = fichas.merval_byma()
-        except Exception as e:  # noqa: BLE001
-            log.warning("Merval BYMA: %s", e)
-        vivo, de = (_merval_vivo(), "BYMA") if serie else (None, None)
-        if not vivo:
-            vivo, de = _merval_rava(), "Rava"
-            de = de if vivo else None
-        guardado = fichas.merval_guardado()
-        if vivo and feriados.es_habil(today_ar()):
-            guardado[vivo[0]] = vivo[1]
-            fichas.guardar_merval(guardado)
-        junta = dict(respaldo.get("^MERV") or [])
-        junta.update(dict(serie))
-        junta.update(guardado)
-        junta = sorted(junta.items())
-        if junta and junta[-1][0] >= viejo:
-            series_por["^MERV"] = junta
-            de_byma.append(f"BYMA" if serie else de or "valores guardados")
-            faltan.remove("^MERV")
+    faltan = [t for t in tickers if t not in series_por and t != "^MERV"]   # Stooq solo tiene el S&P Merval viejo
+    de_stooq = []
     if faltan:
         with ThreadPoolExecutor(max_workers=8) as ex:
             for t, serie in zip(faltan, ex.map(_stooq, faltan)):
@@ -140,14 +144,14 @@ def markets():
     if de_stooq:
         fuente += f" · respaldo Stooq para {len(de_stooq)} símbolo(s)"
         log.warning("Stooq usado para: %s", de_stooq)
-    if de_byma:
-        fuente += f" · Merval: {de_byma[0]} (Yahoo sin actualizar)"
+    if de_merval:
+        fuente += f" · MSCI Merval: {de_merval} (hasta el 16/10/26, S&P Merval en la base del índice nuevo)"
     return out, fuente
 
 
 def _merval_rava():
-    """(fecha, valor) del Merval desde la página pública de Rava, que lo muestra en el título igual que las cauciones:
-    '... $2.848.945,25 (-1,23%)'. Respaldo cuando Yahoo y BYMA no lo dan."""
+    """(fecha, valor) del MSCI Merval desde la página pública de Rava, que lo muestra en el título igual que las
+    cauciones: '... $101.234,56 (-1,23%)'. Respaldo cuando Yahoo y BYMA no lo dan."""
     try:
         html = http_get("https://www.rava.com/perfil/MERVAL", as_json=False, timeout=20, retries=1).text
     except Exception as e:  # noqa: BLE001
@@ -158,13 +162,16 @@ def _merval_rava():
         log.warning("Merval Rava: no encontré el valor en la página")
         return None
     v = float(m.group(1).replace(".", "").replace(",", "."))
-    return (today_ar().isoformat(), v) if v > 1e5 else None
+    return (today_ar().isoformat(), v) if 2e4 < v < 1e6 else None   # escala del MSCI Merval (base 100.000)
 
 
 def _merval_vivo():
-    """(fecha, valor) del S&P Merval en el panel de índices de BYMA, o None."""
+    """(fecha, valor) del MSCI Merval en el panel de índices de BYMA, o None."""
     import requests
     from common import UA
+    from common import BYMA_CC
+    if BYMA_CC.abierto():
+        return None
     try:   # un solo intento corto: si BYMA no responde, la corrida de precios no puede quedar esperando
         r = requests.post(f"{BYMA_FREE}/index-price", json={"page_size": 500, "Content-Type": "application/json"},
                           headers={**UA, "Content-Type": "application/json"}, timeout=10)
@@ -176,11 +183,13 @@ def _merval_vivo():
         return None
     def es_merval(it):
         txt = f"{it.get('symbol', '')} {it.get('description', '')}".upper()
-        return it.get("symbol") == "M" or re.fullmatch(r"\s*(S&P\s*)?MERVAL\s*", str(it.get("description") or "").upper()) or (
-            "MERVAL" in txt and not re.search(r"ARGENTINA|GENERAL|BURCAP|\bM\.AR\b", txt))
+        if re.search(r"USD|D[OÓ]LAR|U\$S", txt):   # la versión en dólares del índice también arranca en 100.000
+            return False
+        return it.get("symbol") == "M" or re.fullmatch(r"\s*(S&P\s*|MSCI\s*)?MERVAL\s*", str(it.get("description") or "").upper()) or (
+            "MERVAL" in txt and not re.search(r"ARGENTINA|GENERAL|BURCAP|\bM\.AR\b|USD|D[OÓ]LAR|U\$S", txt))
     for it in filas:
         v = num(it.get("price") or it.get("trade") or it.get("closingPrice"))
-        if es_merval(it) and v and v > 1e5:
+        if es_merval(it) and v and 2e4 < v < 1e6:   # escala del MSCI Merval (base 100.000)
             return today_ar().isoformat(), v
     return None
 
@@ -371,6 +380,7 @@ def ar_market():
                "d": num(usd.get("pct_change")) if usd else None, "vol": vol / 1e6 if vol else None,
                **_chg(hist, _usd_ticker(t), p_usd)}
         if t in flows_by_ticker:
+            row["vto"] = flows_by_ticker[t][-1][0].isoformat()
             row["flujos"] = bonds.tabla_flujos(flows_by_ticker[t], settle)
             m = bonds.bond_metrics(flows_by_ticker[t], p_usd, settle) if p_usd else None
             if m:
@@ -465,10 +475,12 @@ def ar_market():
             return []
     mep = {r.get("ticker"): r for r in opcional("/live/mep")}
     ccl = {r.get("ticker_ar") or r.get("ticker"): r for r in opcional("/live/ccl")}
-    mega = {}
+    mega, cedear_auto = {}, {}
     for g in ("megacaps_eeuu", "megacaps_global", "empresas_seleccion"):
         for it in CFG["mercados"].get(g, []):
             t = it.get("cedear")
+            if not t and it.get("yahoo") in ced:   # empresa sin CEDEAR cargado: si aparece uno con su ticker, se toma solo
+                t = cedear_auto[it["id"]] = it["yahoo"]
             if t and t in ced:
                 mega[t] = {"precio": num(ced[t].get("c")), "d": num(ced[t].get("pct_change")),
                            "ccl": num((ccl.get(t) or {}).get("CCL_close") or (ccl.get(t) or {}).get("CCL_mark"))}
@@ -481,6 +493,10 @@ def ar_market():
                         "ccl": num((ccl.get(t) or {}).get("CCL_close") or (ccl.get(t) or {}).get("CCL_mark"))})
 
     _marcar_operados(cedears)
+    # ETF del MSCI Merval (gForce, Galicia; símbolo MERV en BYMA, en pesos): puede venir en la lista de acciones o en la de CEDEARs
+    e = stocks.get("MERV") or ced.get("MERV")
+    etf = {"ticker": "MERV", "precio": num(e.get("c")), "d": num(e.get("pct_change")), "vol": _vol(e),
+           **_chg(hist, "MERV", num(e.get("c")))} if e and num(e.get("c")) else None
     # guardar cierres del día para calcular variaciones semanales/mensuales/anuales (sólo días hábiles)
     import feriados
     today = today_ar().isoformat()
@@ -489,12 +505,21 @@ def ar_market():
     for r in (soberanos + bopreal) if today else []:
         if r.get("usd"):
             hist.setdefault(_usd_ticker(r["ticker"]), {})[today] = r["usd"]
-    for r in (acciones + panel + general + cedears) if today else []:
+    for r in (acciones + panel + general + cedears + ([etf] if etf else [])) if today else []:
         if r.get("precio"):
             hist.setdefault(r["ticker"], {})[today] = r["precio"]
     write_json(HIST / "ar_closes.json", _trim(hist))
 
+    # papeles vencidos: dejan de mostrarse solos (aunque sigan en la lista de config/instruments.json)
+    def vigente(r):
+        v = r.get("vto") or (r.get("cond") or {}).get("vto")
+        return not v or v >= today_ar().isoformat()
+    vencidos = [r["ticker"] for g in (soberanos, bopreal, pesos, cer_tamar, dl) for r in g if not vigente(r)]
+    if vencidos:
+        log.info("vencidos, fuera de las tablas: %s", vencidos)
+    soberanos, bopreal, pesos, cer_tamar, dl = ([r for r in g if vigente(r)] for g in (soberanos, bopreal, pesos, cer_tamar, dl))
     return {"soberanos": soberanos, "bopreal": bopreal, "pesos_fija": pesos, "cer_tamar": cer_tamar, "dolar_linked": dl, "a3500_ref": a35,
+            "etf_merval": etf, "cedear_auto": cedear_auto, "vencidos": vencidos,
             "acciones": acciones, "panel_lider": panel, "panel_general": general, "cedears": cedears,
             "nombres": {**{t: e.get("nombre") for t, e in a.get("empresas", {}).items()}, **(pg.get("nombres") or {})},
             "adr_local": {e["adr"]: t for t, e in a.get("empresas", {}).items() if e.get("adr")}, "cedears_mega": mega, "sectores": a.get("sectores", {}), "liquidacion": settle.isoformat()}, \

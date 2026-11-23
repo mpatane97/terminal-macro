@@ -51,6 +51,39 @@ def historia_byma(simbolo, dias=380, plazo=" 24HS", intentos=3, timeout=15):
     return out
 
 
+# El S&P Merval se publicó hasta el 16/10/2026. Desde el 19/10 el índice lo calcula MSCI ("MSCI Merval"), con base
+# 100.000 puntos. Para no perder la historia (variaciones, percentil, Merval en dólares) se encadena: hasta el 16/10 se
+# usa el S&P Merval llevado a la base del índice nuevo (su cierre de ese día pasa a valer 100.000).
+MERVAL_FIN_SP = "2026-10-16"
+MERVAL_SP_CIERRE = 2848945.25   # cierre del S&P Merval el 16/10/2026
+MERVAL_BASE_MSCI = 100000.0
+
+
+def escala_msci(v):
+    """Un valor en la escala del MSCI Merval (no del S&P Merval, que estaba en millones)."""
+    return v is not None and 2e4 < v < 1e6
+
+
+def merval_msci(sp_yahoo, *otras):
+    """Serie del Merval en la escala del MSCI Merval. sp_yahoo: [(fecha, valor)] de Yahoo (^MERV); otras: series
+    [(fecha, valor)] del índice nuevo (BYMA). Se suman los valores guardados por la corrida de precios.
+    Después del 16/10 se acepta solo un valor en la escala nueva y sin saltos de más de 25% contra el anterior."""
+    k = MERVAL_BASE_MSCI / MERVAL_SP_CIERRE
+    junta = {d: v * k for d, v in sp_yahoo or [] if v and d <= MERVAL_FIN_SP and v > 1e5}
+    nuevos = {}
+    for serie in (sp_yahoo or [], *otras, sorted(merval_guardado().items())):
+        for d, v in serie:
+            if d > MERVAL_FIN_SP and escala_msci(v):
+                nuevos[d] = v
+    for d in sorted(nuevos):
+        prev = [x for f, x in junta.items() if f < d]
+        if prev and abs(nuevos[d] / prev[-1] - 1) > 0.25:
+            log.warning("Merval: descarto %s del %s (salto de más de 25%%)", nuevos[d], d)
+            continue
+        junta[d] = nuevos[d]
+    return sorted(junta.items())
+
+
 def merval_guardado():
     """{fecha: valor} del Merval guardados por la corrida de precios cuando Yahoo no lo actualiza."""
     import json
@@ -94,7 +127,7 @@ def merval_byma(dias=400):
             log.warning("Merval BYMA (%s): %s", sim, e)
             break
         vals = sorted(c for _, c, _ in filas)
-        if len(filas) > 50 and vals[len(vals) // 2] > 1e5:
+        if len(filas) > 50 and vals[len(vals) // 2] > 2e4:
             serie = [(d, c) for d, c, _ in filas]
             log.info("Merval BYMA: símbolo %s, %d ruedas", sim, len(serie))
             break
@@ -221,12 +254,20 @@ def armar(papeles, cer, a3500, cierres_respaldo, carpeta):
     if not ok:
         raise RuntimeError(f"ninguna historia disponible ({len(errores)} errores)")
     # si un papel falla hoy queda su ficha de ayer: solo se avisa si no tiene ficha o tiene más de 3 días
+    # (la fecha va dentro de la ficha: la del archivo no sirve, GitHub la renueva en cada corrida)
     avisos = []
-    limite = (datetime.now(AR) - timedelta(days=3)).timestamp()
+    limite = (datetime.now(AR) - timedelta(days=3)).isoformat()
     for t in sorted(errores):
-        f = carpeta / f"{t}.json"
-        if not f.exists() or f.stat().st_mtime < limite:
+        try:
+            ult = __import__("json").loads((carpeta / f"{t}.json").read_text(encoding="utf-8")).get("updated") or ""
+        except Exception:  # noqa: BLE001
+            ult = ""
+        if ult < limite:
             avisos.append(f"Ficha de {t}: sin historia de precios desde hace más de 3 días ({errores[t][:60]})")
+    if len(avisos) > 5:   # muchas juntas: casi siempre es la fuente caída; una sola línea
+        viejas = [a.split(":")[0].replace("Ficha de ", "") for a in avisos]
+        avisos = [f"{len(viejas)} fichas de bonos sin historia nueva desde hace más de 3 días (BYMA no responde): "
+                  f"{', '.join(viejas[:8])}{'…' if len(viejas) > 8 else ''}"]
     # métrica (TIR/TEM) de hace 1 semana y 1 mes de cada papel, para dibujar la curva anterior y su cambio
     import json as _json
     atras = {}

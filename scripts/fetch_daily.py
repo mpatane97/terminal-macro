@@ -1210,8 +1210,8 @@ def panel_general():
     if feriados.es_habil(hoy):
         for r in filas:
             t = r.get("symbol") or ""
-            # sin las especies en dólares (YPFDD, ...)
-            if "." in t or (t[-1:] in ("D", "C") and t[:-1] in simbolos):
+            # sin las especies en dólares (YPFDD, ...) ni el ETF del Merval (MERV), que no es una acción
+            if "." in t or t == "MERV" or (t[-1:] in ("D", "C") and t[:-1] in simbolos):
                 continue
             m = (num(r.get("v")) or 0) * (num(r.get("c")) or 0)
             montos.setdefault(t, {})[hoy.isoformat()] = m

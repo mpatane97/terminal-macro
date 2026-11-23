@@ -123,18 +123,16 @@ def armar(cfg_ar, carpeta, dolares_hist, cierres, hilos=6, extra=(), nombres=Non
     # Merval y ADRs (Yahoo; respaldo Stooq para los ADRs)
     adrs = {t: emp[t]["adr"] for t in tickers if emp.get(t, {}).get("adr")}
     yh = empresas.historias(set(adrs.values()) | {"^MERV"})
-    merval = [(d, c) for d, c, _ in yh.get("^MERV", [])]
-    # Yahoo a veces congela el Merval: si su último dato tiene más de 6 días, se usa la serie de BYMA
-    ref = ccl[-1][0] if ccl else datetime.now().strftime("%Y-%m-%d")   # fecha del último CCL: misma vara que el resto
-    if not merval or merval[-1][0] < (datetime.strptime(ref[:10], "%Y-%m-%d") - timedelta(days=6)).strftime("%Y-%m-%d"):
-        log.warning("Merval de Yahoo sin datos recientes (%s); completo con BYMA y valores guardados", merval[-1][0] if merval else "vacío")
-        junta = dict(merval)
+    # Merval encadenado en la escala del MSCI Merval (desde el 19/10/2026; antes, S&P Merval reescalado). Yahoo quedó
+    # con el S&P Merval: lo nuevo sale de BYMA o de los valores que guarda la corrida de precios.
+    yahoo_mv = [(d, c) for d, c, _ in yh.get("^MERV", [])]
+    hist_byma = []
+    if not [d for d, v in yahoo_mv if d > fichas.MERVAL_FIN_SP and fichas.escala_msci(v)]:
         try:
-            junta.update(dict(fichas.merval_byma()))
+            hist_byma = fichas.merval_byma()
         except Exception as e:  # noqa: BLE001
             log.warning("Merval BYMA: %s", e)
-        junta.update(fichas.merval_guardado())   # valores del momento que guarda la corrida de precios (BYMA o Rava)
-        merval = sorted(junta.items())
+    merval = fichas.merval_msci(yahoo_mv, hist_byma)
 
     # cada acción en dólares CCL, para armar los promedios de sector
     usd = {}
