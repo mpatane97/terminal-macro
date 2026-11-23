@@ -96,6 +96,14 @@ fetch_daily.fred = lambda sid, desde=None: {"WALCL": [("2026-09-24", 6600000.0),
                                             "RRPONTSYD": [("2026-09-23", 20.0), ("2026-09-30", 15.0), ("2026-10-02", 99.0)]}[sid]
 chequear("Liquidez neta de la Fed", fetch_daily._liquidez_fed("2026-01-01"), [("2026-09-24", 5730.0), ("2026-10-01", 5675.0)])
 
+# Merval: S&P hasta el 16/10/26 llevado a la base 100.000 del MSCI Merval; valores nuevos solo en esa escala
+fichas.merval_guardado = lambda: {"2026-10-20": 101000.0, "2026-10-21": 2900000.0, "2026-10-22": 160000.0}
+mv = dict(fichas.merval_msci([("2026-10-15", 2800000.0), ("2026-10-16", 2848945.25)], [("2026-10-19", 100500.0)]))
+chequear("Merval encadenado: 16/10 = 100.000", mv["2026-10-16"], 100000.0, 1e-6)
+chequear("Merval encadenado: 15/10 reescalado", mv["2026-10-15"], 2800000.0 * 100000 / 2848945.25, 1e-6)
+chequear("Merval: valor del índice nuevo", mv["2026-10-20"], 101000.0, 1e-9)
+chequear("Merval: descarta escala vieja y saltos", ("2026-10-21" in mv, "2026-10-22" in mv), (False, False))
+
 for f in ("instruments.json", "bonos.json", "calendario_ar.json"):
     json.load(open(ROOT / "config" / f, encoding="utf-8"))
 print("OK    archivos de config/ son JSON válidos")
