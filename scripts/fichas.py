@@ -64,12 +64,55 @@ def escala_msci(v):
     return v is not None and 2e4 < v < 1e6
 
 
+def merval_sp_historia(sp_yahoo=None):
+    """Historia del S&P Merval hasta el 16/10/2026 (ya no cambia). Se guarda una vez en history/merval_sp.json:
+    Yahoo dejó de devolverla (ahora da solo el último valor). Si no está guardada, se baja de Yahoo con fechas
+    explícitas o de Stooq; se intenta una vez por día."""
+    import json
+    from common import HIST, http_get, today_ar
+    arch = HIST / "merval_sp.json"
+    try:
+        g = json.loads(arch.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        g = {}
+    serie = dict(g.get("serie") or [])
+    serie.update({d: v for d, v in sp_yahoo or [] if d <= MERVAL_FIN_SP and v and v > 1e5})
+    if len(serie) < 150 and g.get("intento") != today_ar().isoformat():
+        g["intento"] = today_ar().isoformat()
+        try:
+            import yfinance as yf
+            df = yf.download("^MERV", start="2025-06-01", end="2026-10-17", interval="1d", auto_adjust=False, progress=False)
+            c = df["Close"]
+            c = c.iloc[:, 0] if getattr(c, "ndim", 1) > 1 else c
+            serie.update({d.strftime("%Y-%m-%d"): float(v) for d, v in c.dropna().items() if float(v) > 1e5})
+        except Exception as e:  # noqa: BLE001
+            log.warning("S&P Merval Yahoo: %s", e)
+        if len(serie) < 150:
+            try:
+                txt = http_get("https://stooq.com/q/d/l/", params={"s": "^mrv", "i": "d", "d1": "20250601", "d2": "20261016"},
+                               as_json=False, timeout=20, retries=1).text
+                for ln in txt.splitlines()[1:]:
+                    pt = ln.split(",")
+                    if len(pt) >= 5 and pt[4] and float(pt[4]) > 1e5:
+                        serie[pt[0]] = float(pt[4])
+            except Exception as e:  # noqa: BLE001
+                log.warning("S&P Merval Stooq: %s", e)
+        log.info("S&P Merval: %d ruedas guardadas", len(serie))
+    g["serie"] = sorted((d, v) for d, v in serie.items() if d <= MERVAL_FIN_SP)
+    try:
+        HIST.mkdir(parents=True, exist_ok=True)
+        arch.write_text(json.dumps(g), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        log.warning("no pude guardar %s: %s", arch, e)
+    return g["serie"]
+
+
 def merval_msci(sp_yahoo, *otras):
     """Serie del Merval en la escala del MSCI Merval. sp_yahoo: [(fecha, valor)] de Yahoo (^MERV); otras: series
     [(fecha, valor)] del índice nuevo (BYMA). Se suman los valores guardados por la corrida de precios.
     Después del 16/10 se acepta solo un valor en la escala nueva y sin saltos de más de 25% contra el anterior."""
     k = MERVAL_BASE_MSCI / MERVAL_SP_CIERRE
-    junta = {d: v * k for d, v in sp_yahoo or [] if v and d <= MERVAL_FIN_SP and v > 1e5}
+    junta = {d: v * k for d, v in merval_sp_historia(sp_yahoo)}
     nuevos = {}
     for serie in (sp_yahoo or [], *otras, sorted(merval_guardado().items())):
         for d, v in serie:

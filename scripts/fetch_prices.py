@@ -133,6 +133,8 @@ def markets():
                 rows.append({**_meta(it), "last": None})
                 continue
             ch = changes_from_series(series)
+            if it["yahoo"] == "^MERV" and len(series) > 1 and (date.fromisoformat(series[-1][0]) - date.fromisoformat(series[-2][0])).days > 6:
+                ch["d"] = None   # hueco en la serie (cambio de índice): no es la variación de un día
             ultimos = [v for _, v in series[-252:]]
             ch["dd52"] = (ch["last"] / max(ultimos) - 1) * 100 if ultimos else None
             cx = contexto(series, puntos=30)
