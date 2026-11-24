@@ -98,6 +98,7 @@ chequear("Liquidez neta de la Fed", fetch_daily._liquidez_fed("2026-01-01"), [("
 
 # Merval: S&P hasta el 16/10/26 llevado a la base 100.000 del MSCI Merval; valores nuevos solo en esa escala
 fichas.merval_guardado = lambda: {"2026-10-20": 101000.0, "2026-10-21": 2900000.0, "2026-10-22": 160000.0}
+fichas.merval_sp_historia = lambda sp=None: [(d, v) for d, v in sp or [] if d <= fichas.MERVAL_FIN_SP]   # sin red ni archivos
 mv = dict(fichas.merval_msci([("2026-10-15", 2800000.0), ("2026-10-16", 2848945.25)], [("2026-10-19", 100500.0)]))
 chequear("Merval encadenado: 16/10 = 100.000", mv["2026-10-16"], 100000.0, 1e-6)
 chequear("Merval encadenado: 15/10 reescalado", mv["2026-10-15"], 2800000.0 * 100000 / 2848945.25, 1e-6)
