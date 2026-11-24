@@ -77,8 +77,8 @@ def merval_sp_historia(sp_yahoo=None):
         g = {}
     serie = dict(g.get("serie") or [])
     serie.update({d: v for d, v in sp_yahoo or [] if d <= MERVAL_FIN_SP and v and v > 1e5})
-    if len(serie) < 150 and g.get("intento") != today_ar().isoformat():
-        g["intento"] = today_ar().isoformat()
+    if len(serie) < 150 and g.get("intento_v2") != today_ar().isoformat():
+        g["intento_v2"] = today_ar().isoformat()
         try:
             import yfinance as yf
             df = yf.download("^MERV", start="2025-06-01", end="2026-10-17", interval="1d", auto_adjust=False, progress=False)
@@ -86,16 +86,22 @@ def merval_sp_historia(sp_yahoo=None):
             c = c.iloc[:, 0] if getattr(c, "ndim", 1) > 1 else c
             serie.update({d.strftime("%Y-%m-%d"): float(v) for d, v in c.dropna().items() if float(v) > 1e5})
         except Exception as e:  # noqa: BLE001
+            g["diag_yahoo"] = f"error: {str(e)[-100:]}"
             log.warning("S&P Merval Yahoo: %s", e)
-        if len(serie) < 150:
+        g["diag"] = {"yahoo": len(serie)}
+        for sim in ("^mrv", "^merv", "mrv"):
+            if len(serie) >= 150:
+                break
             try:
-                txt = http_get("https://stooq.com/q/d/l/", params={"s": "^mrv", "i": "d", "d1": "20250601", "d2": "20261016"},
+                txt = http_get("https://stooq.com/q/d/l/", params={"s": sim, "i": "d", "d1": "20250601", "d2": "20261016"},
                                as_json=False, timeout=20, retries=1).text
+                g["diag"][f"stooq {sim}"] = txt[:80]
                 for ln in txt.splitlines()[1:]:
                     pt = ln.split(",")
                     if len(pt) >= 5 and pt[4] and float(pt[4]) > 1e5:
                         serie[pt[0]] = float(pt[4])
             except Exception as e:  # noqa: BLE001
+                g["diag"][f"stooq {sim}"] = f"error: {str(e)[-100:]}"
                 log.warning("S&P Merval Stooq: %s", e)
         log.info("S&P Merval: %d ruedas guardadas", len(serie))
     g["serie"] = sorted((d, v) for d, v in serie.items() if d <= MERVAL_FIN_SP)

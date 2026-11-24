@@ -190,10 +190,12 @@ def contexto(serie, puntos=40):
     muestra = seis[::paso]
     if muestra and muestra[-1] != seis[-1]:
         muestra.append(seis[-1])
+    # con pocos datos en el año (una serie que recién empieza, o con un hueco) el percentil y el rango engañan
+    ok12 = len(u12) >= 30
     return {"valor": v, "fecha": f, "d_mes": v - hace_mes[-1] if hace_mes else None,
             "d_mes_pct": (v / hace_mes[-1] - 1) * 100 if hace_mes and hace_mes[-1] else None,
-            "pctl12": sum(1 for x in u12 if x <= v) / len(u12) * 100 if u12 else None,
-            "min12": min(u12) if u12 else None, "max12": max(u12) if u12 else None,
+            "pctl12": sum(1 for x in u12 if x <= v) / len(u12) * 100 if ok12 else None,
+            "min12": min(u12) if ok12 else None, "max12": max(u12) if ok12 else None,
             "serie": [round(x, 4) for x in muestra]}
 
 
