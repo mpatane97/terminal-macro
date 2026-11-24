@@ -65,9 +65,12 @@ chequear("Estados de Galicia siguen en pesos", g["moneda"], "ARS")
 chequear("TAMAR TEM con TAMAR 24,56% + margen 6,5", round(tamar.tem(24.56, 6.5) * 100, 3), 2.587, 0.001)
 chequear("Días 30/360 del TMF27 (13/02/26 a 26/02/27)", tamar.dias_30_360(date(2026, 2, 13), date(2027, 2, 26)), 373)
 # contexto histórico: percentil y cambio del mes
-cx = contexto([(f"2026-{m:02d}-01", float(m)) for m in range(1, 11)])
+from datetime import timedelta as _td  # noqa: E402
+cx = contexto([((date(2026, 9, 1) + _td(days=i)).isoformat(), float(i)) for i in range(60)])
 chequear("Contexto: último valor en el máximo del año → percentil 100", cx["pctl12"], 100.0, 1e-9)
-chequear("Contexto: cambio del mes", cx["d_mes"], 1.0, 1e-9)
+chequear("Contexto: cambio del mes", cx["d_mes"], 30.0, 1e-9)
+cx = contexto([("2026-10-16", 100.0), ("2026-11-20", 81.0), ("2026-11-24", 82.0)])
+chequear("Contexto: con pocos datos no hay percentil ni rango", (cx["pctl12"], cx["min12"]), (None, None))
 
 s4 = BONOS["familias"].get("BOPREAL_S4")
 chequear("BOPREAL Serie 4 cargado", bool(s4), True)
