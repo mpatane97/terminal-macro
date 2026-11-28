@@ -1,0 +1,1 @@
+{"intento": "2026-11-24", "serie": [["2026-10-16", 2848945.25]], "intento_v2": "2026-11-28", "diag": {"yahoo": 1, "stooq ^mrv": "error: could not convert string to float: 'e.encode(c+n))'", "stooq ^merv": "error: could not convert string to float: 'e.encode(c+n))'", "stooq mrv": "error: could not convert string to float: 'e.encode(c+n))'"}}
